@@ -22,7 +22,7 @@ tags:
 | `moduleCustomConfigs` | 为指定模块补充 classpath、同步路径或忽略过滤策略 |
 | `customCompilers` | 给项目下发自定义编译器 jar |
 | `embeddedApksSearchRules` | 配置嵌入式 APK 的搜索规则 |
-| `autoUploadFailureLogs` | 最终编译或实际部署失败后，自动上传最近两份脱敏日志 |
+| `autoUploadFailureLogs` | 最终编译或实际部署失败后，向可用后台自动上传最近两份原文日志 |
 | `autoUploadFailureLogsExcludeRegex` | 对最终错误摘要做包含匹配，命中时排除本次自动上传 |
 
 旧字段 `buildFileList` 已不建议新增使用；新后台优先维护 `buildFileRules`。
