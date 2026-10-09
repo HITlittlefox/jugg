@@ -72,7 +72,7 @@ SourceCompiler.doModuleCompile()
   -> compileLanguageStagesWithRetry()
        -> KotlinCompiler 先编译 Kotlin + JuggApt Kotlin
        -> JavaCompiler 再编译 Java + JuggApt Java + KAPT Java + DataBinding Java
-       -> 若真实源码诊断直接指向 JuggApt 产物，移除 changed-file 登记并无 JuggApt 重试一次
+       -> 若真实源码诊断直接指向可降级的 JuggApt 产物，移除 changed-file 登记并无 JuggApt 重试一次
   -> compileDexOutputs()
        -> DexCompiler 接收 class / 原始 class 输入
        -> DexCompiler 单次分析 program class
@@ -82,6 +82,9 @@ SourceCompiler.doModuleCompile()
 ```
 
 这条链路的核心顺序不能随意调整：JuggApt/DataBinding 必须在语言编译前完成，Kotlin 必须早于 Java，minify 必须在 dex 之后执行。
+
+`SourceCompiler.prepareSourceCompile()` 在语言编译前执行 `JuggAptCompiler`，生成 Java 的目录先供 Kotlin 解析，再进入正常 Java 编译。生成异常或生成文件的直接语言诊断命中 `failClosed` 时，本轮明确失败，不能通过移除生成源码重试掩盖；普通处理器保留可降级路径。扩展接线及 ARouter 检测、生成和恢复边界见 `02_compile_custom_ui.md` §4。
+ARouter 适配器在自身打印原异常 warn，并只向通用编译链交付不含项目细节的失败标记；`JuggCompilerHelper` 保持通用的查看日志提示。生成源码的直接语言诊断仍由语言编译路径处理。
 
 ### 4.1 Kotlin 模块身份与元数据
 
@@ -148,7 +151,7 @@ Kotlin 1.9 的 baseline Kotlin output 可能同时包含 dirty expect/actual clo
 
 ## 5. 隐形约束 / 设计思路 / 已知边界
 
-- `collectJuggAptGeneratedFiles()` 是 fail-open：处理器异常只 warn，然后继续主编译。不要把 JuggApt warn 直接等同于整轮编译失败。
+- `collectJuggAptGeneratedFiles()` 仅对可降级处理器保留 warn 后继续的路径；`JuggAptFatalException` 会传播到 `SourceCompiler.doModuleCompile()` 并使本轮失败。不能只凭 warn 判断生成成功或整轮失败，需检查处理器的 `failClosed` 契约与最终编译结果。
 - JuggApt 生成文件会被登记为 changed file；只有语言编译器把真实源码诊断直接归因到 JuggApt 产物时，重试前才会 `removeChangedFile()`，避免错误 shadow source 持续污染后续轮次。
 - Kotlin 批量编译失败时，无直接诊断的同批文件可能被标记为通用失败；Java 同批文件也可能只有空错误列表。这类连带失败不会撤销 JuggApt changed-file tracking，生成文件会保留到后续轮次继续编译。
 - JuggApt 降级只重试一次，且只在直接源码诊断指向本轮 JuggApt 产物时触发；普通 Kotlin/Java 编译失败不会进入该分支。

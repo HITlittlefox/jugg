@@ -12,7 +12,7 @@ tags:
 
 # Annotation processors
 
-Jugg provides incremental handling only for a small set of explicitly listed annotation entry points and includes their generated sources in the current source compilation. When existing Hilt generated artifacts are available, Jugg can also restore the Hilt bytecode shape of Android entry-point classes before DEX generation. APT, KAPT, or KSP processors not listed here are not run independently by Jugg and must be handled by Gradle.
+Jugg provides built-in incremental handling only for a small set of explicitly listed annotation entry points and includes their generated sources in the current source compilation. When existing Hilt generated artifacts are available, Jugg can also restore the Hilt bytecode shape of Android entry-point classes before DEX generation. Other APT, KAPT, or KSP processors are handled by Gradle by default; a project can connect a dedicated adapter through a custom compiler.
 
 ## Supported scope
 
@@ -27,7 +27,7 @@ Jugg provides incremental handling only for a small set of explicitly listed ann
 | Change Hilt injected fields, bindings, constructor dependencies, or entry-point annotations | Regeneration not supported | Does not run Hilt/Dagger processors; run a Gradle build to refresh generated code and the component graph |
 
 > [!NOTE]
-> Annotation processors other than the explicitly listed entry points are considered unsupported for independent incremental execution by Jugg. Use the corresponding Gradle build when their sources must be regenerated.
+> Jugg does not run annotation processors outside the explicitly listed entry points by default. A project can provide an adapter through a [custom compiler](./custom-compiler.md). Without an adapter, use the corresponding Gradle build when those sources must be regenerated.
 
 ## Boundaries
 

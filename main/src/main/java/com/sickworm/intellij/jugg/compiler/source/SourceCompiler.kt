@@ -6,6 +6,8 @@ import com.sickworm.intellij.jugg.compiler.*
 import com.sickworm.intellij.jugg.compiler.databinding.DataBindingGenMapperCompiler
 import com.sickworm.intellij.jugg.compiler.obfuscation.DexMinifyCompiler
 import com.sickworm.intellij.jugg.compiler.source.apt.JuggAptCompiler
+import com.sickworm.intellij.jugg.compiler.source.apt.JuggAptFatalException
+import com.sickworm.intellij.jugg.compiler.source.apt.IJuggAptProcessor
 import com.sickworm.intellij.jugg.compiler.source.kotlin.KotlinCompiler
 import com.sickworm.intellij.jugg.project.ChangedFile
 import com.sickworm.intellij.jugg.project.data.ModuleInfo
@@ -54,7 +56,11 @@ class SourceCompiler(
     )
 
     override fun doModuleCompile(task: CompileTask, module: ModuleInfo): CompileResult {
-        val prepareResult = prepareSourceCompile(task, module)
+        val prepareResult = try {
+            prepareSourceCompile(task, module)
+        } catch (failure: JuggAptFatalException) {
+            return task.allFailed("${failure.message}: ${failure.cause?.message}. Run a full Gradle build to refresh generated sources.")
+        }
         if (!prepareResult.isSuccess) {
             logger.warn("Generate APT/KAPT/KSP failed, the compile result may not be correct. Error: ${prepareResult.errorMsg}")
         }
@@ -86,6 +92,10 @@ class SourceCompiler(
         var classCompileResult = CompileResult(compileTask, emptyList(), emptyList())
 
         var kotlinAptJavaFiles = emptyList<CompileFile>()
+        kotlinCompiler.additionalJavaSourceDirs = juggAptGeneratedFiles
+            .filter { it.type == CompileFile.Type.Java }
+            .map { it.baseDir }
+            .distinct()
         val kotlinCompileTask = CompileTask(
             files = mergeCompileFiles(
                 task.files.filter { it.type == CompileFile.Type.Kotlin },
@@ -252,7 +262,7 @@ class SourceCompiler(
     /**
      * Runs custom generated-source processors before language compilation.
      *
-     * Fail-open strategy: any exception only logs warning and keeps main compile flow available.
+     * Built-in processors can degrade; external generators may fail the source round.
      */
     private fun collectJuggAptGeneratedFiles(compileTask: CompileTask, module: ModuleInfo): List<CompileFile> {
         return try {
@@ -267,6 +277,7 @@ class SourceCompiler(
                 .filter { it.type == CompileFile.Type.Java || it.type == CompileFile.Type.Kotlin }
                 .distinctBy { "${it.type}:${it.file.absolutePath}" }
         } catch (throwable: Throwable) {
+            if (throwable is JuggAptFatalException) throw throwable
             logger.warn("JuggAptCompiler failed: ${throwable.message}")
             emptyList()
         }
@@ -282,6 +293,10 @@ class SourceCompiler(
         if (compileResult.isAllSuccess || juggAptGeneratedFiles.isEmpty()) {
             return false
         }
+        val failedGeneratedFiles = compileResult.failedFiles.map { it.getFailure() }
+            .filter { it.hasDirectSourceDiagnostic }.map { it.file }
+        if (context.customCompilers.filterIsInstance<IJuggAptProcessor>()
+                .any { processor -> processor.failClosed && failedGeneratedFiles.any(processor::ownsGeneratedFile) }) return false
         val juggAptFileSet = juggAptGeneratedFiles
             .map { "${it.type}:${it.file.absolutePath}" }
             .toHashSet()

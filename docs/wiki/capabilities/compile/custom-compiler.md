@@ -20,6 +20,7 @@ Jugg supports extending its built-in incremental compilation flow through a cust
 | Remote custom compiler JAR | Supported | The remote extension participates in compilation after download and validation |
 | Pre-stage processing | Supported | Can consume or rewrite input before a built-in stage |
 | Post-stage processing | Supported | Can process artifacts after a built-in stage |
+| Generate Java before source compilation | Supported with a project-provided adapter | Java/Kotlin annotation inputs can run through the project's processor, and generated Java enters the current compilation |
 | Extension execution fails | Supported | If extension compilation logic throws an exception, the current task fails with a visible message |
 
 ## Integration
@@ -27,6 +28,8 @@ Jugg supports extending its built-in incremental compilation flow through a cust
 A custom compiler is provided as a JAR. The extension implements `ICompilerCreator`, which creates an `ICompiler` for the current compilation context. Jugg loads implementations from the JAR through SPI.
 
 The project backend only needs to declare the JAR filename, path, and MD5 in the `customCompilers` configuration. The path can be an absolute local path, a path relative to the project directory, or an HTTP/HTTPS address.
+
+For annotation generators such as ARouter, a project can provide an adapter and its processor dependencies. The adapter reads the current module's sources before Java/Kotlin compilation and runs the project's processor with APT and Kotlin KAPT stubs. When the processor, Gradle generated-source baseline, and annotation-related declarations are unchanged, it reuses local generated sources without rerunning the processor. Removing a route or another change that removes a generated class requires a complete Gradle build to refresh the baseline.
 
 > [!NOTE]
 > Custom compilers run inside the Jugg compilation flow. They are suitable for extending the incremental flow, not for replacing the complete Gradle task graph.

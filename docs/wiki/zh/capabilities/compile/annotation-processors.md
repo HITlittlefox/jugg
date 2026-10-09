@@ -12,7 +12,7 @@ tags:
 
 # 注解器
 
-Jugg 只对少量明确列出的注解入口提供增量处理，并把对应生成源码纳入本轮源码编译。对于已有 Hilt 生成物，Jugg 还能在 DEX 生成前恢复 Android 入口 class 的 Hilt 字节码形态。未列出的 APT、KAPT 或 KSP processor 不会由 Jugg 独立增量执行，需要交给 Gradle。
+Jugg 只对少量明确列出的注解入口提供内置增量处理，并把对应生成源码纳入本轮源码编译。对于已有 Hilt 生成物，Jugg 还能在 DEX 生成前恢复 Android 入口 class 的 Hilt 字节码形态。其他 APT、KAPT 或 KSP processor 默认交给 Gradle；项目可通过自定义编译器接入专用适配器。
 
 ## 支持范围
 
@@ -27,7 +27,7 @@ Jugg 只对少量明确列出的注解入口提供增量处理，并把对应生
 | 修改 Hilt 注入字段、binding、构造依赖或入口注解 | 不支持重新生成 | 不运行 Hilt/Dagger processor；需要主动执行 Gradle 构建刷新生成代码和组件图 |
 
 > [!NOTE]
-> 除上表明确列出的入口外，其他 annotation processor 均视为不支持 Jugg 独立增量执行。相关源码需要重新生成时，使用对应 Gradle 构建。
+> 除上表明确列出的入口外，Jugg 不会默认独立运行其他 annotation processor。项目可以通过[自定义编译器](./custom-compiler.md)提供对应适配器；没有适配器时，相关源码需要重新生成应使用 Gradle 构建。
 
 ## 使用边界
 

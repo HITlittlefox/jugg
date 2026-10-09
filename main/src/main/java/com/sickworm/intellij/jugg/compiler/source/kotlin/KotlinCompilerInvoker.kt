@@ -107,6 +107,7 @@ class KotlinCompilerInvoker {
         val isCanAutoRetry: Boolean = true,
         val kaptOptions: Map<String, String> = emptyMap(),
         val kaptDependencies: List<File> = emptyList(),
+        val kaptMode: String = "stubsAndApt",
         val javaSourceDirs: List<File>? = null,
         // Force using embedded compiler by bypassing project compiler classpath.
         val forceUseEmbeddedKotlinCompiler: Boolean = false,
@@ -291,7 +292,7 @@ class KotlinCompilerInvoker {
                 "-P", "plugin:org.jetbrains.kotlin.kapt3:verbose=true",
                 "-P", "plugin:org.jetbrains.kotlin.kapt3:correctErrorTypes=true", // recommend, just add it
                 // stubs, apt, stubsAndApt, compile
-                "-P", "plugin:org.jetbrains.kotlin.kapt3:aptMode=stubsAndApt",
+                "-P", "plugin:org.jetbrains.kotlin.kapt3:aptMode=${options.kaptMode}",
             ))
 
             options.kaptDependencies.forEach {

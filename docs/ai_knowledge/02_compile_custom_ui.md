@@ -1,6 +1,6 @@
 # 编译系统：自定义编译器与编译交互
 
-> 最后核对：2026-05-23
+> 最后核对：2026-10-10
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -71,6 +71,12 @@ BaseCompileContext.customCompilers
         -> 把内置 outputs 转回 CompileFile 后交给自定义编译器
 ```
 
+实现了 `IJuggAptProcessor` 的 custom compiler 还有源码预处理入口：`SourceCompiler.prepareSourceCompile()` 在 Kotlin/Java 编译前调用一次 `JuggAptCompiler`，它从 `context.customCompilers` 取得这类扩展。此入口不依赖 `ICompiler.order`，可对混合 Java/Kotlin 模块生成 Java 后交给既有语言编译阶段。适配器可设置 `failClosed`，使生成异常和生成源码编译错误停止本轮增量任务；内置处理器默认保持原降级行为。
+
+项目专用 ARouter 适配器通过上述入口复用项目 processor；Jugg 主仓库只保留通用 SPI 与 Demo。实现和验证见 `docs/task/2026-10/arouter_custom_compiler_adapter.md`，打包与配置步骤见 `custom_compilers/README.md`。
+
+Project Info 可能混合 Jetified AAR 和原始 processor JAR；`android.enableJetifier`、APK 类型信号或 SPI 相同都不能单独证明有效 javac 类路径与处理器契约兼容。必须对照处理器实际要求和本轮类路径。标准版、定制版的独立 javac 探针不代表 Jugg 整轮增量、Kotlin KAPT、缓存失效或部署已验证。
+
 ---
 
 ## 5. 编译交互协议
@@ -104,13 +110,9 @@ BaseCompileContext.customCompilers
 
 ---
 
-## 7. 新增自定义编译器建议步骤
+## 7. 新增自定义编译器
 
-1. 在独立模块实现 `ICompilerCreator` 与自定义 `ICompiler`。
-2. 配置 `META-INF/services/com.sickworm.intellij.jugg.compiler.custom.ICompilerCreator`。
-3. 为自定义 `ICompiler.order` 选择明确的 `CompileOrder` 区间。
-4. 在 server 配置中声明 jar 路径与 md5。
-5. 通过 `CustomCompilerManager` 更新并检查日志中的 jar 解析、下载和 `initCompilers finished`。
+源码目录、SPI 注册、打包、JAR 校验与项目配置步骤见 [custom_compilers/README.md](../../custom_compilers/README.md)；普通 hook 与源码预处理的执行契约见本页 §4。
 
 ---
 
