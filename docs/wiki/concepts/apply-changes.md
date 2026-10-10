@@ -75,9 +75,12 @@ The following changes cannot rely only on Activity recreation:
 - Overlays read only after restart during compatibility deployment.
 - Classpath resources at the APK root.
 - Content with process-level caches, such as Compose resources.
+- ARouter registration indexes in the current deployment.
 - The user enables “always restart after deployment” or starts from Debug.
 
 These scenarios can still use current incremental compilation artifacts, but the new process must recreate its ClassLoader, Resources, or runtime caches. See [In-app Jugg Runtime](./jugg-runtime.md) and [compatibility deployment](./compat-deploy.md) for how they are loaded.
+
+ARouter loads registration information from generated indexes into process-level caches. Replacing an index's method bodies online or recreating the Activity does not rebuild route mappings that have already been loaded. Jugg therefore restarts the app after deploying these indexes, even when their class structure allows online replacement. See [Restart](../capabilities/deploy/restart.md) for the matching scope and conservative restart behavior.
 
 ## Related pages
 

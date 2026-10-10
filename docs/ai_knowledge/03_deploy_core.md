@@ -59,13 +59,17 @@
 | `isNeedRestartApp` | `HOT_FIX` | 需要重启 App 生效。 |
 | 其他 | `HOT_RELOAD` | 在线 Apply Changes，尽量不重启 App。 |
 
-`isNeedRestartApp` 由 hot-fix classes、非空 `isPushOverlayOnly`、APK 根目录 overlay、非空 Compose resource compile、Flutter JIT runtime 变化、`nativeLibraryOverlays`，或 reinstall recover 后的 follow-up replay 决定；`isNeedRestartActivity` 只在非 warm-up、非空且不需要重启 App 时成立。`isEmpty` 纳入 class、resource/asset overlay、NativeLib 与 APK 更新项；NativeLib 按 APK scope 过滤，分片时只随最后一片发送。摘要日志把 NativeLib 放在与 class、overlay 相同的明细区，以 `native libraries:` 分组逐行列出；完整调试日志还会输出 checksum。部署结果以 `!isEmpty` 判断是否有变更。
+`isNeedRestartApp` 由 hot-fix classes、ARouter 注册索引、非空 `isPushOverlayOnly`、APK 根目录 overlay、非空 Compose resource compile、Flutter JIT runtime 变化、`nativeLibraryOverlays`，或 reinstall recover 后的 follow-up replay 决定；`isNeedRestartActivity` 只在非 warm-up、非空且不需要重启 App 时成立。`isEmpty` 纳入 class、resource/asset overlay、NativeLib 与 APK 更新项；NativeLib 按 APK scope 过滤，分片时只随最后一片发送。摘要日志把 NativeLib 放在与 class、overlay 相同的明细区，以 `native libraries:` 分组逐行列出；完整调试日志还会输出 checksum。部署结果以 `!isEmpty` 判断是否有变更。
+
+`JuggDeployData.hasArtifactsRequiringAppRestart()`（`deploy/run/ArtifactRestartPolicy.kt`）是产物重启规则入口。ARouter 注册索引进入部署 payload 时要求重启 App，以刷新进程级注册缓存；普通业务类和 Autowired helper 不触发该规则。APK 过滤与历史重放后根据当前 payload 重新判断；即使索引内容相同也可能重启，不能把“处理器缓存命中”解释为“没有索引需要部署”。具体匹配策略在该实现旁说明。
 
 Flutter JIT runtime 变化指本轮真实编译并部署的 `assets/flutter_assets/kernel_blob.bin`、`vm_snapshot_data`、`isolate_snapshot_data`。`DeployDataPlanner` 从本轮 staging 产物识别：产物类型为 `Asset`、来源模块含 `ExternalBuildType.Flutter`、标准化部署路径命中上述三个文件之一。识别必须发生在 `DeployDataGenerator` 首次 full-resource overlay 扩展之前，否则 APK 基线带入 overlay 的旧 kernel 会被误判为本轮变化。命中结果写入瞬态字段 `flutterJitRuntimeFiles`（`List<DeployItem>`，随 `filterForApks()` 一起裁剪，不持久化、不进部署历史），warm-up 与 install 数据保持为空。
 
 Flutter Android embedding 把 JIT runtime 文件解压到应用私有目录 `app_flutter`，并以 `app_flutter/res_timestamp-<versionCode>-<lastUpdateTime>` 判断是否需要重新解压。overlay 更新不改变 APK 的 `lastUpdateTime`，所以必须显式删除该 timestamp，App 才能在重启后从已生效的 overlay 重新解压。
 
 正常部署由 `DeployDataPlanner` 从 `DeployFileStateTracker.getCompiledFiles()` 识别 `CompileFile.Type.ComposeResource`，写入瞬态 `isComposeResourceCompiled`。该状态在 commit 前保留，能覆盖正常部署与 retry；不需要从已经丢失来源信息的 `CompileOutput.Type.Asset` 或历史 staging 路径恢复 Compose 身份。Compose 标记只对非空 payload 生效，避免编译成功但最终无产物时空重启。
+
+现代 Compose resource 的 asset 相对路径来自 Gradle `packagingDir`，现有读取契约没有固定目录前缀限制，因此保留上述来源标记；不能仅凭常见的 `assets/composeResources/` 路径替代它。legacy Compose resource 已由 APK 根目录产物规则覆盖。
 
 APK 根目录 overlay 使用最终部署路径判断：`res/**`、`assets/**`、`resources.arsc` 之外的 overlay 都要求重启进程，例如 legacy Compose resource 的 `values/strings.xml` 和 Java SPI 的 `META-INF/services/**`。这个规则不依赖编译阶段类型，因此历史恢复后的部署数据也能得到相同行为。它允许少量无害 false positive；如果 Classpath resource 刻意使用 Android 专属路径名，则存在 false negative。
 

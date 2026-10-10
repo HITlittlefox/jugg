@@ -203,6 +203,51 @@ class JuggDeployDataTest {
     }
 
     @Test
+    fun `arouter registration indexes require app restart for new and modified classes`() {
+        listOf("com/alibaba/android/arouter/routes", "com/tencent/yb/routes").forEach { packageName ->
+            listOf("Group", "Root", "Providers", "Interceptors").forEach { index ->
+                val name = "L$packageName/ARouter\$\$$index\$\$demo;"
+                val item = classDeployItem(name, listOf(basePath))
+                listOf(
+                    deployData(newClasses = listOf(item)),
+                    deployData(hotReloadModifiedClasses = listOf(item)),
+                ).forEach { data ->
+                    assertTrue(name, data.isNeedRestartApp)
+                    assertFalse(name, data.isNeedRestartActivity)
+                    assertEquals(name, JuggDeployData.DeployType.HOT_FIX, data.deployType)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `ordinary route classes and autowired helpers can still hot reload`() {
+        listOf(
+            "Lcom/example/JavaRouteActivity;",
+            "Lcom/example/JavaRouteActivity\$\$ARouter\$\$Autowired;",
+            "Lcom/example/ARouter\$\$GroupHelper;",
+        ).forEach { name ->
+            val data = deployData(hotReloadModifiedClasses = listOf(classDeployItem(name, listOf(basePath))))
+
+            assertFalse(name, data.isNeedRestartApp)
+            assertTrue(name, data.isNeedRestartActivity)
+            assertEquals(name, JuggDeployData.DeployType.HOT_RELOAD, data.deployType)
+        }
+    }
+
+    @Test
+    fun `arouter restart requirement follows the target apk without compile metadata`() {
+        val routeIndex = classDeployItem("Lcom/tencent/yb/routes/ARouter\$\$Group\$\$demo;", listOf(basePath))
+        val data = deployData(
+            hotReloadModifiedClasses = listOf(routeIndex, classDeployItem("Lcom/example/Other;", listOf(testPath))),
+        )
+
+        assertTrue(data.filterForApks(listOf(baseApk)).isNeedRestartApp)
+        assertFalse(data.filterForApks(listOf(testApk)).isNeedRestartApp)
+        assertFalse(deployData().isNeedRestartApp)
+    }
+
+    @Test
     fun `compose resource compile requires app restart`() {
         val data = deployData(
             overlays = listOf(

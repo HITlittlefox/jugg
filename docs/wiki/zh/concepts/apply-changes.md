@@ -75,9 +75,12 @@ warm-up、状态探测或不需要界面刷新的特殊调用可以使用不重�
 - 兼容部署中只在重启后读取的 overlay；
 - APK 根目录的 classpath resource；
 - Compose 资源等具有进程级缓存的内容；
+- 本轮部署中的 ARouter 注册索引；
 - 用户开启“部署后始终重启”，或从 Debug 入口运行。
 
 这些场景仍可使用本轮增量编译产物，但新进程需要重新建立 ClassLoader、Resources 或运行时缓存。具体加载方式见[App 进程内 Jugg runtime](./jugg-runtime.md)和[兼容部署](./compat-deploy.md)。
+
+ARouter 会把生成索引中的注册信息加载到进程级缓存。在线替换索引的方法体、重建 Activity，都不会重新建立已经加载的路由映射。因此 Jugg 在部署这些索引后重启 App，即使索引的 class 结构允许在线替换。触发范围与保守重启边界见 [Restart](../capabilities/deploy/restart.md)。
 
 ## 相关页面
 
