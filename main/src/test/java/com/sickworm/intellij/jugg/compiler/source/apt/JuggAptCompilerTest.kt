@@ -16,6 +16,7 @@ import org.junit.Before
 import org.junit.Test
 import java.io.File
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -203,6 +204,46 @@ class JuggAptCompilerTest {
         compiler.compile(createTask(pageFileA))
         assertTrue(entryA.readText().contains("""BridgeManager.registerPageRouter("page_a")"""))
         assertFalse(entryB.readText().contains("""BridgeManager.registerPageRouter("page_a")"""))
+    }
+
+    @Test
+    fun failClosedBuiltinStopsGenerationInsteadOfReturningPartialOutputs() {
+        val module = createModule("moduleA")
+        val source = createPlainKotlinSource(module, "NormalClass")
+        createKotlinEntry(module)
+        val closed = object : IJuggAptProcessor {
+            override val id = "closed"
+            override val failClosed = true
+            override fun process(context: ICompileContext, module: ModuleInfo, allCompileFiles: List<CompileFile>): List<CompileFile> =
+                error("Generation failed")
+        }
+        val compiler = JuggAptCompiler(createContext(module), TestGlobal.mockParentDisposable,
+            listOf(ReturnFirstGeneratedProcessor(), closed))
+
+        assertFailsWith<JuggAptFatalException> { compiler.compile(createTask(source)) }
+    }
+
+    @Test
+    fun failClosedOwnershipUsesTheInstanceThatGeneratedTheFile() {
+        val module = createModule("moduleA")
+        val source = createPlainKotlinSource(module, "NormalClass")
+        val entry = createKotlinEntry(module)
+        var generated: CompileFile? = null
+        val closed = object : IJuggAptProcessor {
+            override val id = "closed"
+            override val failClosed = true
+            override fun process(context: ICompileContext, module: ModuleInfo, allCompileFiles: List<CompileFile>): List<CompileFile> {
+                generated = CompileFile(CompileFile.Type.Kotlin, entry, entry.parentFile, module)
+                return listOf(generated!!)
+            }
+            override fun ownsGeneratedFile(file: CompileFile): Boolean = file == generated
+        }
+        val compiler = JuggAptCompiler(createContext(module), TestGlobal.mockParentDisposable, listOf(closed))
+
+        assertFalse(compiler.isFailClosedGeneratedFile(source))
+        compiler.compile(createTask(source))
+        assertTrue(compiler.isFailClosedGeneratedFile(generated!!))
+        assertFalse(compiler.isFailClosedGeneratedFile(source))
     }
 
     private fun createContext(vararg modules: ModuleInfo): SimpleCompileContext {

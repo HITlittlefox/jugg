@@ -11,7 +11,7 @@ import com.sickworm.intellij.jugg.project.data.ModuleInfo
 import java.io.File
 import java.util.LinkedHashMap
 
-/** Stops the source round when an external annotation generator cannot produce valid sources. */
+/** Stops the source round when a fail-closed annotation generator cannot produce valid sources. */
 class JuggAptFatalException(message: String, cause: Throwable) : RuntimeException(message, cause)
 
 /**
@@ -35,7 +35,7 @@ class JuggAptCompiler(
     /**
      * Executes all custom processors in deterministic order.
      *
-     * Built-in processors remain fail-open; project generators can require this round to fail.
+     * Each processor decides whether generation and generated-source errors can degrade.
      */
     override fun doModuleCompile(task: CompileTask, module: ModuleInfo): CompileResult {
         if (task.files.none { it.type == CompileFile.Type.Java || it.type == CompileFile.Type.Kotlin }) {
@@ -78,6 +78,12 @@ class JuggAptCompiler(
 
         val outputs = rewrittenByPath.values.mapNotNull { it.toCompileOutput() }
         return CompileResult(task, emptyList(), outputs)
+    }
+
+    /** Uses the generating instances to preserve fail-closed ownership through language compilation. */
+    fun isFailClosedGeneratedFile(file: CompileFile): Boolean {
+        val activeProcessors = processors + context.customCompilers.filterIsInstance<IJuggAptProcessor>()
+        return activeProcessors.any { it.failClosed && it.ownsGeneratedFile(file) }
     }
 
     private fun backupGeneratedSourceDir(sourceDir: File): File {

@@ -7,7 +7,6 @@ import com.sickworm.intellij.jugg.compiler.databinding.DataBindingGenMapperCompi
 import com.sickworm.intellij.jugg.compiler.obfuscation.DexMinifyCompiler
 import com.sickworm.intellij.jugg.compiler.source.apt.JuggAptCompiler
 import com.sickworm.intellij.jugg.compiler.source.apt.JuggAptFatalException
-import com.sickworm.intellij.jugg.compiler.source.apt.IJuggAptProcessor
 import com.sickworm.intellij.jugg.compiler.source.kotlin.KotlinCompiler
 import com.sickworm.intellij.jugg.project.ChangedFile
 import com.sickworm.intellij.jugg.project.data.ModuleInfo
@@ -262,7 +261,7 @@ class SourceCompiler(
     /**
      * Runs custom generated-source processors before language compilation.
      *
-     * Built-in processors can degrade; external generators may fail the source round.
+     * Fail-open processors can degrade; fail-closed generators stop the source round.
      */
     private fun collectJuggAptGeneratedFiles(compileTask: CompileTask, module: ModuleInfo): List<CompileFile> {
         return try {
@@ -295,8 +294,7 @@ class SourceCompiler(
         }
         val failedGeneratedFiles = compileResult.failedFiles.map { it.getFailure() }
             .filter { it.hasDirectSourceDiagnostic }.map { it.file }
-        if (context.customCompilers.filterIsInstance<IJuggAptProcessor>()
-                .any { processor -> processor.failClosed && failedGeneratedFiles.any(processor::ownsGeneratedFile) }) return false
+        if (failedGeneratedFiles.any(juggAptCompiler::isFailClosedGeneratedFile)) return false
         val juggAptFileSet = juggAptGeneratedFiles
             .map { "${it.type}:${it.file.absolutePath}" }
             .toHashSet()

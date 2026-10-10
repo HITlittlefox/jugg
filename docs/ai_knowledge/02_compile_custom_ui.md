@@ -27,6 +27,7 @@
 | `CompileUiHandler` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/CompileUiHandler.kt` | 编译侧交互抽象，屏蔽 IDE UI、CLI 默认实现和 androidTest 事件 sink |
 | `CustomConfigManager.readConfig()` | `main/src/main/java/com/sickworm/intellij/jugg/project/CustomConfigManager.kt` | 本地与默认项目配置的读取边界 |
 | `CustomCompilerInfo` | `main/src/main/java/com/sickworm/intellij/jugg/server/protocols/Protocols.kt` | server 下发的 jar 名、路径和 md5 配置模型 |
+| `ARouterJuggAptProcessor` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/source/apt/processors/ARouterJuggAptProcessor.kt` | 内置发现项目 ARouter 处理器、Fragment 适配、检查点和 failClosed 生成 |
 | `Example*CustomCompiler` | `custom_compilers/src/main/java/com/sickworm/intellij/jugg/compiler/demo/` | 示例 SPI 实现，覆盖 assemble、delay、hook init 等常见插入形态 |
 
 ---
@@ -72,11 +73,25 @@ BaseCompileContext.customCompilers
         -> 把内置 outputs 转回 CompileFile 后交给自定义编译器
 ```
 
-实现了 `IJuggAptProcessor` 的 custom compiler 还有源码预处理入口：`SourceCompiler.prepareSourceCompile()` 在 Kotlin/Java 编译前调用一次 `JuggAptCompiler`，它从 `context.customCompilers` 取得这类扩展。此入口不依赖 `ICompiler.order`，可对混合 Java/Kotlin 模块生成 Java 后交给既有语言编译阶段。适配器可设置 `failClosed`，使生成异常和生成源码编译错误停止本轮增量任务；内置处理器默认保持原降级行为。
+实现了 `IJuggAptProcessor` 的 custom compiler 还有源码预处理入口：`SourceCompiler.prepareSourceCompile()` 在 Kotlin/Java 编译前调用一次 `JuggAptCompiler`，它从 `context.customCompilers` 取得这类扩展。此入口不依赖 `ICompiler.order`，可对混合 Java/Kotlin 模块生成 Java 后交给既有语言编译阶段。适配器可设置 `failClosed`，使生成异常和生成源码编译错误停止本轮增量任务；普通处理器保持原降级行为；内置 ARouter 使用 `failClosed`。
 
-项目专用 ARouter 适配器通过上述入口复用项目 processor；Jugg 主仓库只保留通用 SPI 与 Demo。实现和验证见 `docs/task/2026-10/arouter_custom_compiler_adapter.md`，打包与配置步骤见 `custom_compilers/README.md`。
+### 4.3 内置 ARouter 处理
 
-Project Info 可能混合 Jetified AAR 和原始 processor JAR；`android.enableJetifier`、APK 类型信号或 SPI 相同都不能单独证明有效 javac 类路径与处理器契约兼容。必须对照处理器实际要求和本轮类路径。标准版、定制版的独立 javac 探针不代表 Jugg 整轮增量、Kotlin KAPT、缓存失效或部署已验证。
+`ProcessorRegistration` 默认注册 `ARouterJuggAptProcessor`，不要求 custom compiler 配置或单独 JAR。它复用项目 `annotationProcessor` / `kapt` 依赖，不把 ARouter compiler 打入插件。若外部 `IJuggAptProcessor.id == "ARouter"` 仍在配置中，内置实例跳过，由旧扩展处理；迁移时只移除该扩展配置，保留其他 custom compiler。
+
+处理器比较模块 Java/Kotlin 注解声明、历史检查点与 Gradle 生成源码基线；有相关输入时先解析项目处理器环境再判断缓存。`ARouterProcessorCompatibility.projectProcessor()` 从项目依赖的实际 JSR 269 SPI 发现处理器，生成时仅执行选中的 ARouter 集合；缺失、歧义或不完整的 SPI 会使生成失败。项目参数接受 `AROUTER_MODULE_NAME` 或 `moduleName`，其余选项原样透传，kapt 同键覆盖 Java 配置；未单独适配早期 `@Param` 等规则差异。
+
+Project Info 的 AAR 类路径和 processor JAR 可能分别处于 Jetifier 之后、之前，不能以 `android.enableJetifier` 判断处理器已转换。`ARouterProcessorCompatibility.selectProcessor()` 对照处理器实际 Fragment 要求、APK 基线信号和本轮有效编译类路径：仅单 APK 明确只含 Support 时选择 Support，其余情况默认 AndroidX。`containsApkClass()` 的空结果也可能表示数据库不可用，不能断言 APK 没有该类；选择后仍须验证类路径含目标 Fragment。
+
+Fragment 要求与所选目标不同才转换 processor 的独立副本，并同时替换 KAPT、javac 的 processor path 和辅助 classpath；不覆盖项目文件，不转换其他 runtime/annotation 依赖。转换后校验 Fragment 引用及 SPI，无法可靠识别或转换时生成失败。
+
+生成阶段将相关 Kotlin 声明的 KAPT stubs 与模块 Java 源码交给 javac，生成 Java 再进入既有 Kotlin/Java 编译链；普通语言编译关闭 APT/KAPT。
+
+检查点按模块/变体保存声明、相关常量/继承事实、项目参数、处理器及运行依赖指纹、Gradle 生成源码基线和生成源码内容摘要。library dependency 不依赖名称是否含 arouter，processor 文件读取实际内容 SHA-256。签名和生成内容均未变化时只复用源码，仍交给本轮语言编译；普通方法体变化不重跑处理器。失败不发布新检查点。删除检查同时对比当前 Gradle 基线及有效历史清单，首次增量也能发现生成类消失；删除最后一个声明不能绕过检查。完整 Gradle 构建改变基线后重新建立检查点。文件删除是否进入本轮仍取决于上游变更发现。
+
+`failClosed` 保证处理失败或生成文件的直接语言诊断停止本轮任务。`JuggAptCompiler.isFailClosedGeneratedFile()` 查询执行生成的同一组内置/外部实例，`SourceCompiler` 不对这类文件采用移除 JuggApt 产物的重试；Kuikly 等原有 fail-open 重试继续保留。生成文件只由本实例实际使用的 checkpoint source 目录认领，不按文件名误认其他产物。注册索引沿用已有 `ArtifactRestartPolicy` 重启策略，缓存源码重新编译后也可能触发重启。
+
+源码事实使用文本提取，并非完整 Java/Kotlin 语义：跨模块常量、复杂别名、间接继承或任意 fork 的注解/生成规则仍需真实工程验证。
 
 ---
 
@@ -135,3 +150,4 @@ Project Info 可能混合 Jetified AAR 和原始 processor JAR；`android.enable
 - 编译核心：`02_compile_core.md`
 - IDE 执行链：`04_engineering_ide.md`
 - 工程/配置：`04_engineering_project.md`
+- 历史适配器、迁移及验证：`docs/task/2026-10/arouter_generic_custom_compiler_plan.md`

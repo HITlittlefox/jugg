@@ -20,6 +20,7 @@ Jugg 只对少量明确列出的注解入口提供内置增量处理，并把对
 |---|---|---|
 | 新增 `com.tencent.kuikly.core.annotations.Page` / `@Page` 页面 | 支持 | 基于已有路由入口补充缺失注册，并将更新后的入口加入本轮源码编译 |
 | 删除、重命名或修改已有 Kuikly `@Page` 路由 | 不支持 | 不移除旧路由注册，需要由 Gradle 重新生成完整入口 |
+| ARouter `@Route` / `@Autowired` / `@Interceptor` | 支持 | 自动运行项目处理器，必要时适配 Fragment 类型，生成 Java 参与本轮编译；生成类消失时明确停止并要求完整 Gradle 构建 |
 | 使用 KSP1 的 `com.squareup.moshi.JsonClass` / `@JsonClass` | 支持 | 通过项目 KSP1 compiler plugin 生成 Moshi adapter，并继续源码编译 |
 | 使用 KSP2 的 `com.squareup.moshi.JsonClass` / `@JsonClass` | 不支持 | 不独立运行 KSP2 processor，只能继续编译 Gradle 已生成的源码 |
 | [DataBinding `<layout>`](./databinding-viewbinding.md) | 支持 | 通过专用 DataBinding annotation processor 生成 mapper、BR 和绑定相关源码 |
@@ -32,6 +33,7 @@ Jugg 只对少量明确列出的注解入口提供内置增量处理，并把对
 ## 使用边界
 
 - Kuikly `@Page` 增量处理依赖最近一次 Gradle/KSP 生成的路由入口基线，并且只补充缺失注册。删除页面、修改路由或重命名页面类时，应通过 Gradle 清理旧注册。
+- ARouter 需项目 processor 依赖及 `AROUTER_MODULE_NAME` 或 `moduleName` 参数；旧自定义适配器仍配置时只运行旧路径。Fragment 选择、迁移和已知边界见[自定义编译器](./custom-compiler.md)。
 - Moshi KSP 只在本轮 Kotlin 源码明确使用 `com.squareup.moshi.JsonClass` 且项目存在对应 KSP 依赖时触发。
 - KSP2 不由 Jugg 独立运行 processor；Jugg 只能继续编译 Gradle 已经生成的源码。
 - Hilt 入口转换已对照 Hilt `2.41`～`2.60.1` 的官方转换语义，并兼容 `2.41`～`2.48.1` 的 Receiver 字段标记与 `2.49` 起使用的注解标记。它只处理已有生成物对应的 Android 入口 class，不代表 Jugg 可以独立运行 Hilt/Dagger 注解处理器。普通方法逻辑变化可以增量生效；任何需要更新生成代码或组件图的修改都应先执行完整 Gradle 构建。

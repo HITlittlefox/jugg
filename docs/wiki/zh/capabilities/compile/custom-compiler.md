@@ -29,7 +29,11 @@ Jugg 支持通过自定义编译器 SPI 扩展内置增量编译链。自定义�
 
 项目后台只需在 `customCompilers` 配置中声明 jar 文件名、路径和 md5。路径可以是本地绝对路径、相对项目目录的路径或 HTTP / HTTPS 地址。
 
-对于 ARouter 这类注解生成，项目可下发适配器和对应处理器依赖。适配器在 Java/Kotlin 编译前读取当前模块源码，以 APT 和 Kotlin KAPT stub 运行项目处理器；处理器、Gradle 生成源码基线及注解相关声明均未变化时复用本地生成源码，不重复运行处理器。删除路由等导致旧生成类消失时，需要完整 Gradle 构建刷新基线。
+ARouter 的 `@Route`、`@Autowired`、`@Interceptor` 已有内置增量处理，无需下发适配器。项目需保留自己的 annotation processor 依赖及 `AROUTER_MODULE_NAME` 或 `moduleName` 参数。Jugg 在 Java/Kotlin 编译前运行项目处理器，生成 Java 后继续本轮编译；处理器、Gradle 生成源码基线及注解相关声明未变化时复用已有生成源码。
+
+Jugg 按 APK 基线选择 AndroidX 或旧 Support Fragment，必要时转换 processor JAR。两种类型都有、没有查询结果或多 APK 无法确定归属时使用 AndroidX；本轮编译类路径缺少目标 Fragment 时明确失败。删除路由等导致旧生成类消失，或生成源码无法编译时，本轮任务停止；需要完整 Gradle 构建刷新基线。路由注册索引部署沿用现有 App 重启策略。
+
+保留旧 ARouter 自定义编译器配置时，Jugg 只运行旧适配器。迁移到内置处理应移除该项配置，保留其他扩展。首版识别上述三种官方注解；早期 `@Param`、复杂常量/继承和改变注解或生成规则的 fork 需要核对实际结果，不能仅凭 ARouter 名称认定兼容。支持范围见[注解器](./annotation-processors.md)。
 
 > [!NOTE]
 > 自定义编译器运行在 Jugg 编译流程内，适合补充增量链路，不适合替代完整 Gradle task graph。

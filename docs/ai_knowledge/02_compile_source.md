@@ -84,7 +84,7 @@ SourceCompiler.doModuleCompile()
 这条链路的核心顺序不能随意调整：JuggApt/DataBinding 必须在语言编译前完成，Kotlin 必须早于 Java，minify 必须在 dex 之后执行。
 
 `SourceCompiler.prepareSourceCompile()` 在语言编译前执行 `JuggAptCompiler`，生成 Java 的目录先供 Kotlin 解析，再进入正常 Java 编译。生成异常或生成文件的直接语言诊断命中 `failClosed` 时，本轮明确失败，不能通过移除生成源码重试掩盖；普通处理器保留可降级路径。扩展接线及 ARouter 检测、生成和恢复边界见 `02_compile_custom_ui.md` §4。
-ARouter 适配器在自身打印原异常 warn，并只向通用编译链交付不含项目细节的失败标记；`JuggCompilerHelper` 保持通用的查看日志提示。生成源码的直接语言诊断仍由语言编译路径处理。
+ARouter 处理器在自身打印原异常 warn，并只向通用编译链交付不含项目细节的失败标记；`JuggCompilerHelper` 保持通用的查看日志提示。生成源码的直接语言诊断仍由语言编译路径处理。
 
 ### 4.1 Kotlin 模块身份与元数据
 
