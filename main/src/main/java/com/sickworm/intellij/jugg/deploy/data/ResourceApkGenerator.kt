@@ -42,11 +42,15 @@ class ResourceApkGenerator(
         notStagingDeployedFiles: List<CompileOutput>,
     ): List<DeployItem> {
         val isApkExists = resourceApkFile.exists()
-        logger.debug("getResourceApkDeployItem, resourceApkFile: ${resourceApkFile}, isApkExists: $isApkExists")
+        // resources.arsc is the whole resource table; patching it incrementally would leave the
+        // overlay apk inconsistent with the full resource set, so fall back to full rebuild.
+        val hasResourceTable = changedOverlays.any { it.name.endsWith("resources.arsc") }
+        logger.debug("getResourceApkDeployItem, resourceApkFile: ${resourceApkFile}, " +
+                "isApkExists: $isApkExists, contentServiceResourceTable: $hasResourceTable")
         TimeLogger.start("getResourceApkDeployItem")
 
         val resourceModifier = ResourceApkModifier(originApkPath, resourceApkFile, logger)
-        if (!isApkExists) {
+        if (!isApkExists || hasResourceTable) {
             val deployedItems = buildScopedFullResInputs(originApkPath, changedOverlays, notStagingDeployedFiles)
 
             val fullResAndAssets = deployDataDatabase.addFullRes(deployedItems, isNeedRes = true, isNeedAsset = true)

@@ -7,8 +7,10 @@ import com.sickworm.intellij.jugg.compiler.FieldNode
 import com.sickworm.intellij.jugg.compiler.MethodNode
 import com.sickworm.intellij.jugg.deploy.run.DeployItem
 import com.sickworm.intellij.jugg.deploy.run.JuggDeployData
+import com.sickworm.intellij.jugg.jvmti_agent.BuildConfig
 import com.sickworm.intellij.jugg.mock.logger
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.File
@@ -57,6 +59,34 @@ class ResourceApkGeneratorTest {
         database.addFullResInputs.forEach { inputItems ->
             assertEquals(listOf("resources.arsc"), inputItems.map { it.name })
         }
+    }
+
+    @Test
+    fun testResourceApkFallsBackToFullRebuildWhenResourceTableChanged() {
+        val testRoot = Files.createTempDirectory("resource-apk-generator-test").toFile()
+        val baseApkPath = File(testRoot, "base.apk").path
+        val database = RecordingDeployDataDatabase(fullResources = emptyList())
+        val generator = ResourceApkGenerator(
+            deployDataDatabase = database,
+            resourceApkDir = File(testRoot, "resource_apks"),
+            logger = logger,
+        )
+
+        // first round creates the baseline resource apk through the full rebuild path
+        val firstOverlay = DeployItem("res/layout/main.xml", CompileOutput.Type.Res, 1, "layout".toByteArray(), baseApkPath)
+        generator.getResourceApkDeployItem(changedOverlays = listOf(firstOverlay), notStagingDeployedFiles = emptyList())
+        val resourceApkFile = File(testRoot, "resource_apks/base.apk/${BuildConfig.RESOURCE_APK_NAME}")
+        assertTrue(resourceApkFile.exists())
+        assertEquals(1, database.addFullResInputs.size)
+
+        // changed resources.arsc must not patch the resource apk incrementally:
+        // the full rebuild path (addFullRes) must run again
+        val resourceTableOverlay = DeployItem("resources.arsc", CompileOutput.Type.Res, 2, "newtable".toByteArray(), baseApkPath)
+        val deployItems = generator.getResourceApkDeployItem(changedOverlays = listOf(resourceTableOverlay), notStagingDeployedFiles = emptyList())
+
+        assertEquals(2, database.addFullResInputs.size)
+        assertEquals(listOf(resourceTableOverlay), database.addFullResInputs.last())
+        assertEquals("newtable", unzipSingleEntry(deployItems.single().content, "resources.arsc"))
     }
 
     private fun createOutput(testRoot: File, dirName: String, apkPath: String, content: String): CompileOutput {
