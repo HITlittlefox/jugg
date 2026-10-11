@@ -1,6 +1,6 @@
 # 编译系统：源码编译链（Java/Kotlin/Dex）
 
-> 最后核对：2026-09-12
+> 最后核对：2026-10-11
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -150,6 +150,8 @@ Kotlin 1.9 的 baseline Kotlin output 可能同时包含 dirty expect/actual clo
 ---
 
 ## 5. 隐形约束 / 设计思路 / 已知边界
+
+ARouter 的比较基线、pending 生命周期及完整 Gradle 构建恢复边界统一见 `02_compile_custom_ui.md` §4.3；本节只描述通用生成源码编译与降级契约。
 
 - `collectJuggAptGeneratedFiles()` 仅对可降级处理器保留 warn 后继续的路径；`JuggAptFatalException` 会传播到 `SourceCompiler.doModuleCompile()` 并使本轮失败。不能只凭 warn 判断生成成功或整轮失败，需检查处理器的 `failClosed` 契约与最终编译结果。
 - JuggApt 生成文件会被登记为 changed file；只有语言编译器把真实源码诊断直接归因到 JuggApt 产物时，重试前才会 `removeChangedFile()`，避免错误 shadow source 持续污染后续轮次。

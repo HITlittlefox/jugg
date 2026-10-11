@@ -7,7 +7,7 @@ import com.sickworm.intellij.jugg.project.data.ModuleInfo
 /**
  * IJuggAptProcessor defines one generated-source producer in the Jugg APT pipeline.
  *
- * Processors receive compile context + module + current round files, then return generated sources
+ * Processors share the current round's source analysis, then return generated sources
  * that should be recompiled in the same source-compile round.
  */
 interface IJuggAptProcessor {
@@ -29,11 +29,13 @@ interface IJuggAptProcessor {
      * @param context compile context for path/module/environment lookup
      * @param module current module being compiled
      * @param allCompileFiles all compile files in current module round
+     * @param analysis shared source snapshots and lazy syntax facts for this module round
      * @return rewritten generated sources to be compiled in current round
      */
     fun process(
         context: ICompileContext,
         module: ModuleInfo,
         allCompileFiles: List<CompileFile>,
+        analysis: AptSourceAnalysis,
     ): List<CompileFile>
 }

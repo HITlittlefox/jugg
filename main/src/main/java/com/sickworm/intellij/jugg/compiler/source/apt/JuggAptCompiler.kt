@@ -48,13 +48,10 @@ class JuggAptCompiler(
 
         val rewrittenByPath = LinkedHashMap<String, CompileFile>()
 
+        val analysis = AptSourceAnalysis(task.files)
         activeProcessors.forEach { processor ->
             try {
-                val rewrittenFiles = processor.process(
-                    context = context,
-                    module = module,
-                    allCompileFiles = task.files,
-                )
+                val rewrittenFiles = processor.process(context, module, task.files, analysis)
                 for (rewritten in rewrittenFiles) {
                     if (rewritten.type != CompileFile.Type.Java && rewritten.type != CompileFile.Type.Kotlin) {
                         if (processor.failClosed) error("Processor ${processor.id} returned unsupported file type: ${rewritten.type}")
@@ -67,6 +64,7 @@ class JuggAptCompiler(
                         continue
                     }
                     rewrittenByPath[rewritten.file.absolutePath] = rewritten
+                    analysis.invalidate(rewritten.file)
                 }
             } catch (throwable: Throwable) {
                 if (processor.failClosed) {

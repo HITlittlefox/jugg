@@ -214,7 +214,7 @@ class JuggAptCompilerTest {
         val closed = object : IJuggAptProcessor {
             override val id = "closed"
             override val failClosed = true
-            override fun process(context: ICompileContext, module: ModuleInfo, allCompileFiles: List<CompileFile>): List<CompileFile> =
+            override fun process(context: ICompileContext, module: ModuleInfo, allCompileFiles: List<CompileFile>, analysis: AptSourceAnalysis): List<CompileFile> =
                 error("Generation failed")
         }
         val compiler = JuggAptCompiler(createContext(module), TestGlobal.mockParentDisposable,
@@ -232,7 +232,7 @@ class JuggAptCompilerTest {
         val closed = object : IJuggAptProcessor {
             override val id = "closed"
             override val failClosed = true
-            override fun process(context: ICompileContext, module: ModuleInfo, allCompileFiles: List<CompileFile>): List<CompileFile> {
+            override fun process(context: ICompileContext, module: ModuleInfo, allCompileFiles: List<CompileFile>, analysis: AptSourceAnalysis): List<CompileFile> {
                 generated = CompileFile(CompileFile.Type.Kotlin, entry, entry.parentFile, module)
                 return listOf(generated!!)
             }
@@ -244,6 +244,21 @@ class JuggAptCompilerTest {
         compiler.compile(createTask(source))
         assertTrue(compiler.isFailClosedGeneratedFile(generated!!))
         assertFalse(compiler.isFailClosedGeneratedFile(source))
+    }
+
+    @Test
+    fun arouterDetectionFailureDoesNotBlockPageRegistrationFromTheSameSnapshot() {
+        val module = createModule("moduleA")
+        val context = createContext(module)
+        val source = createKotlinPageSource(module, "SharedPage", "shared_page")
+        source.file.writeText(source.file.readText().replace("import com.tencent.kuikly.core.annotations.Page",
+            "import com.tencent.kuikly.core.annotations.Page\nimport com.alibaba.android.arouter.facade.annotation.Route")
+            .replace("@Page(\"shared_page\")", "@Page(\"shared_page\")\n@Route(path = \"/demo/shared\", priority = 1 shl 2)"))
+        val entry = createKotlinEntry(module)
+        val result = JuggAptCompiler(context, TestGlobal.mockParentDisposable).compile(createTask(source))
+        assertTrue(result.isAllSuccess)
+        assertEquals(listOf(entry), result.outputs.map { it.file })
+        assertTrue(entry.readText().contains("registerPageRouter(\"shared_page\")"))
     }
 
     private fun createContext(vararg modules: ModuleInfo): SimpleCompileContext {
@@ -493,6 +508,7 @@ class JuggAptCompilerTest {
             context: ICompileContext,
             module: ModuleInfo,
             allCompileFiles: List<CompileFile>,
+            analysis: AptSourceAnalysis,
         ): List<CompileFile> {
             error("intentional fail for fail-open test")
         }
@@ -505,6 +521,7 @@ class JuggAptCompilerTest {
             context: ICompileContext,
             module: ModuleInfo,
             allCompileFiles: List<CompileFile>,
+            analysis: AptSourceAnalysis,
         ): List<CompileFile> {
             return discoverGeneratedAptFiles(context, module, allCompileFiles).take(1)
         }
