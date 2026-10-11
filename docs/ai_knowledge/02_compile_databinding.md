@@ -1,6 +1,6 @@
 # 编译系统：DataBinding / ViewBinding
 
-> 最后核对：2026-09-11
+> 最后核对：2026-10-11
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -100,7 +100,8 @@ SourceCompiler.prepareSourceCompile()
 ## 5. 增量关键点
 
 - DataBinding 和 ViewBinding 都从资源阶段入口开始，但只有 DataBinding 会进入 mapper/BR 阶段。
-- `DataBindingArgsManager.isUseDataBinding(module, xmlFile)` 会在未显式开启时通过 Gradle kapt 输出目录和 XML 中 `<layout` 做猜测；普通 ViewBinding layout 不应触发 DataBinding mapper。
+- `DataBindingArgsManager.isUseDataBinding(module)` 保持模块级开关/Gradle kapt 输出目录探测；传入非空 `xmlFile` 时，还要求至少一个 XML 含 `<layout`。模块开启 DataBinding 不再绕过本轮布局判断，普通 layout 不生成 DataBinding trigger；本轮若另有 adapter declaration，源码阶段仍可按既有条件运行 processor。
+- 资源阶段没有生成 DataBinding trigger 时，直接输出的 ViewBinding Java 必须同时保存到 `incrementalBaseClassOutDir`，包括模块同时开启 DataBinding/ViewBinding 的情况。Kotlin 先于 Java 编译，依赖 `getGeneratedSourcePaths()` 读取这份最新生成源；仅返回 Java 编译输入会让 Kotlin 继续看到 Gradle baseline 中的旧 Binding。生成 trigger 的路径仍由 Mapper 阶段保存生成源。
 - BR 合并使用 `LinkedHashMap` 保持声明顺序稳定；新增字段追加到末尾，避免 BR id 抖动。
 - mapper 使用 `DataBinderMapperImpl_Inc_N` 增量编号；`N` 来自已部署 dex 中同包名 inc mapper 的数量。
 - 源码阶段不能调用 `argsManager.reset()`，因为 mapper 生成依赖资源阶段刚写入的 `tempDataBindingLayoutXmlDir`。

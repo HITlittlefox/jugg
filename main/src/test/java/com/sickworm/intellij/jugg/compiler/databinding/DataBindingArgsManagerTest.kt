@@ -11,8 +11,7 @@ import kotlin.test.assertTrue
 /**
  * Contract: the module-level dataBinding switch must not bypass per-layout
  * detection. A plain layout (no <layout> tag) in a dataBinding module must not
- * trigger the data binding stage, or the regenerated global DataBinderMapper
- * corrupts unrelated data binding pages after hot deploy.
+ * produce a DataBinding processor trigger solely because the module enables it.
  */
 class DataBindingArgsManagerTest {
 
