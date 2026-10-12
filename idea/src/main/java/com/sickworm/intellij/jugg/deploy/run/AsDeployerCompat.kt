@@ -13,6 +13,7 @@ import com.android.tools.idea.protobuf.ByteString
 import com.android.utils.ILogger
 import com.intellij.execution.configurations.RunConfigurationBase
 import com.intellij.openapi.application.ApplicationInfo
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
@@ -253,7 +254,10 @@ object AsDeployerCompat : IAsDeployerCompat {
     }
 
     override fun getIdeModuleInfo(project: Project, module: Module, logger: Logger, isSafeMode: Boolean): IdeModuleInfo? {
-        return invokeCompat { it.getIdeModuleInfo(project, module, logger, isSafeMode) }
+        // Gradle DSL getters may lazily parse PSI, including when resolving the module directory.
+        return ReadAction.compute<IdeModuleInfo?, RuntimeException> {
+            invokeCompat { it.getIdeModuleInfo(project, module, logger, isSafeMode) }
+        }
     }
 
     private fun <T> invokeCompat(call: (IAsDeployerCompat) -> T): T {
