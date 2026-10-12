@@ -18,8 +18,14 @@ import com.sickworm.intellij.jugg.ide.bean.JuggSettings
 import com.sickworm.intellij.jugg.ide.controlpanel.JuggControlPanelModel
 import com.sickworm.intellij.jugg.ide.controlpanel.JuggEvent
 import com.sickworm.intellij.jugg.logger.getInstance
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JComponent
+import javax.swing.SwingUtilities
 
 /**
  * Coordinates real project facts, persisted settings, and control panel actions for one JuggManager.
@@ -36,6 +42,8 @@ open class JuggControlPanelController(
     private val userActionLogger = logger.getInstance(USER_ACTION_LOG_TAG)
     private var panel: JuggControlPanel? = null
     private var syncEventTaskId: String? = null
+    private val deviceRefreshPending = AtomicBoolean()
+    @Volatile private var isCleared = false
 
     open fun getPanel(page: String): JComponent {
         val currentPanel = panel ?: JuggControlPanel(project, model, this).also {
@@ -49,11 +57,7 @@ open class JuggControlPanelController(
 
     open fun refresh() {
         val configuration = RunManager.getInstance(project).selectedConfiguration?.name.orEmpty()
-        val devices = deployTargetManager.getDeviceNameList()
-            ?.split(",")
-            ?.map(String::trim)
-            ?.filter(String::isNotEmpty)
-            .orEmpty()
+        val devices = model.snapshot().context.devices
         val changedFiles = deployFileManager.getUndeployedFiles().map { changedFile ->
             JuggEvent.ChangedFileSnapshot(
                 category = when (changedFile.type) {
@@ -84,10 +88,45 @@ open class JuggControlPanelController(
         model.updateContext(context)
         model.updateSettings(currentSettings())
         model.updateHealth(buildHealth(context))
+        refreshDevices()
     }
 
     open fun refreshSettings() {
         model.updateSettings(currentSettings())
+        refreshDevices()
+    }
+
+    /** Queries devices outside the EDT because the IDE may wait for ADB initialization. */
+    private fun refreshDevices() {
+        if (isCleared || project.isDisposed || !manager.isActive ||
+            !deviceRefreshPending.compareAndSet(false, true)
+        ) return
+        manager.launch(Dispatchers.IO) {
+            val devices = readDeviceNames()
+            val compatDevices = forceCompatDevices()
+            SwingUtilities.invokeLater {
+                if (isCleared || project.isDisposed || !manager.isActive) return@invokeLater
+                val currentContext = model.snapshot().context
+                val context = currentContext.copy(devices = devices ?: currentContext.devices)
+                model.updateContext(context)
+                model.updateSettings(currentSettings().copy(forceCompatDevices = compatDevices))
+                model.updateHealth(buildHealth(context))
+            }
+        }.invokeOnCompletion { deviceRefreshPending.set(false) }
+    }
+
+    private fun readDeviceNames(): List<String>? {
+        return try {
+            deployTargetManager.getDeviceNameList()
+                ?.split(",")
+                ?.map(String::trim)
+                ?.filter(String::isNotEmpty)
+                .orEmpty()
+        } catch (e: Throwable) {
+            if (e is CancellationException) throw e
+            logger.warn("Refresh selected devices failed", e)
+            null
+        }
     }
 
     open fun updateSetting(setting: Setting, enabled: Boolean) {
@@ -112,19 +151,19 @@ open class JuggControlPanelController(
                 .firstOrNull { it.displayName == displayName }
         } catch (e: Exception) {
             logger.warn("Update force compat device $displayName failed", e)
-            model.updateSettings(currentSettings())
+            refreshSettings()
             return
         }
         if (adb == null) {
             logger.debug("Skip force compat update because $displayName disconnected")
-            model.updateSettings(currentSettings())
+            refreshSettings()
             return
         }
         val helper = CompatDeployHelper(logger)
         if (helper.isForceCompatDevice(adb) == enabled) return
         if (enabled) helper.recordCompatDeviceRecord(adb) else helper.clearCompatDeviceRecord(adb)
         manager.forceReInstallNextTime()
-        model.updateSettings(currentSettings())
+        refreshSettings()
         recordSettingChanged("Force use compat deploy for $displayName", enabled)
     }
 
@@ -270,6 +309,7 @@ open class JuggControlPanelController(
     }
 
     fun clear() {
+        isCleared = true
         panel = null
         JuggControlPanelHost.clear(project)
     }
@@ -286,7 +326,7 @@ open class JuggControlPanelController(
             backupClasspath = JuggSettings.isEnableBackupClasspath,
             isInjectGradleCompileEnabled = JuggSettings.isEnableInjectGradleCompile,
             canUseBackupClasspath = JuggSettings.isCanUseBackupClasspath,
-            forceCompatDevices = forceCompatDevices(),
+            forceCompatDevices = model.snapshot().settings.forceCompatDevices,
         )
     }
 
@@ -298,8 +338,9 @@ open class JuggControlPanelController(
                 val adb = IdeaDeviceAdb(it, logger)
                 JuggControlPanelModel.Settings.ForceCompatDevice(adb.displayName, helper.isForceCompatDevice(adb))
             }
-        } catch (e: Exception) {
-            logger.debug("Load force compat devices failed", e)
+        } catch (e: Throwable) {
+            if (e is CancellationException) throw e
+            logger.warn("Load force compat devices failed", e)
             emptyList()
         }
     }
