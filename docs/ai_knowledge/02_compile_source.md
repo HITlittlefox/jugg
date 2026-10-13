@@ -173,6 +173,7 @@ ARouter 的比较基线、pending 生命周期及完整 Gradle 构建恢复边�
 - pre-D8 program class 分析由 `DexCompiler` 统一完成，并通过显式 `ClassPreparation` 依次交给 `TransformerCompiler`、`getDesugarInfo` 和 D8。`DeployDataGenerator` / `CompileEffectAnalyzer` 不再从 `CompileFile.extraInfo` 读取元数据或 fallback 完整解析 program class；递归父类只读取 header，不遍历方法体。
 - Hilt 入口转换不是完整注解处理支持。它只维护 Hilt `2.41`～`2.60.1` 已有生成物对应的入口字节码形态；生成物缺失或无法读取时失败，用户自行选择 Gradle fallback，不新增 Hilt 专属自动回退。
 - core library rewrite 只在 APK database 已发现 `j$.*` 时查找 `desugar.json`；不能因为工程声明了依赖就无条件为所有模块启用。
+- Kotlin 输出消息直接匹配标签并保留最后一个标签的既有分类语义，避免无标签的 KAPT 长 classpath/参数行触发贪婪正则的平方级回溯；日志内容、诊断和产物映射保持原有契约。
 - KAPT 场景下 Kotlin 编译器 warning/error 文本会按 debug 记录，避免用户可见输出被 APT/KAPT 噪音淹没；失败判定仍由 parser 处理。
 - Kotlin compiler plugin 参数优先复用 Gradle task 已解析的 `KotlinCompilerPluginData.options.arguments`，兼容 Kotlin Gradle Plugin 的 `kotlin_gradle_plugin_common` 与旧 `kotlin_gradle_plugin` getter；读取不到时保持空列表，不伪造插件参数。参数与 plugin JAR 使用同一个 current-to-parent module 列表聚合，兼容 KMP 等将插件信息保存在父模块的场景，并删除完全相同的重复项。不得只收紧参数继承范围，否则可能加载父模块插件却遗漏其 required option；plugin owner 范围如需调整，必须同时覆盖 JAR、参数与 compiler classpath。
 - Gradle-resolved plugin 参数只在本轮加载项目 compiler plugin 时转换为 `-P`。已加载插件报 `unsupported plugin option` 时，仅移除该 plugin id 的 Gradle-resolved 参数并共享全局单次重试预算；降级成功后按 compiler toolchain 与原参数集缓存，toolchain 或参数变化后重新尝试。用户显式写入 `kotlinFreeCompilerArgs` 的参数不参与该降级。
