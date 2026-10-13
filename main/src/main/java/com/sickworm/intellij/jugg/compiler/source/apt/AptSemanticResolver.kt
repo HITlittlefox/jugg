@@ -23,7 +23,7 @@ class AptSemanticResolver(private val context: ICompileContext, private val modu
     private val values = mutableMapOf<String, Any>()
     private val resolving = mutableSetOf<String>()
     private val paths by lazy {
-        context.getModuleDependencies(module, CompileTask(emptyList(), context.tempCompileDir, CompileStatusHolder.DEFAULT)).map(::File) + module.buildPathInfo.allClassPath
+        module.buildPathInfo.allClassPath + context.getModuleDependencies(module, CompileTask(emptyList(), context.tempCompileDir, CompileStatusHolder.DEFAULT)).map(::File)
     }
 
     fun classInfo(name: String): ClassNode? = classes.getOrPut(name) {

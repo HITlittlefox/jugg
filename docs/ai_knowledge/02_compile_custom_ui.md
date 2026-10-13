@@ -1,6 +1,6 @@
 # 编译系统：自定义编译器与编译交互
 
-> 最后核对：2026-10-11
+> 最后核对：2026-10-13
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -27,10 +27,10 @@
 | `CompileUiHandler` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/CompileUiHandler.kt` | 编译侧交互抽象，屏蔽 IDE UI、CLI 默认实现和 androidTest 事件 sink |
 | `CustomConfigManager.readConfig()` | `main/src/main/java/com/sickworm/intellij/jugg/project/CustomConfigManager.kt` | 本地与默认项目配置的读取边界 |
 | `CustomCompilerInfo` | `main/src/main/java/com/sickworm/intellij/jugg/server/protocols/Protocols.kt` | server 下发的 jar 名、路径和 md5 配置模型 |
-| `ARouterJuggAptProcessor` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/source/apt/processors/ARouterJuggAptProcessor.kt` | 内置发现项目 ARouter 处理器、Fragment 适配、检查点和 failClosed 生成 |
+| `ARouterJuggAptProcessor` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/source/apt/processors/ARouterJuggAptProcessor.kt` | 内置发现项目 ARouter 处理器、Fragment 适配、业务 class 比较和 failClosed 生成 |
 | `AptSourceAnalysis`, `AptSemanticResolver` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/source/apt/` | 本轮共享只读源码、语法事实及按需常量/类型解析 |
-| `AnnotationProcessorRunner`, `AnnotationProcessorClasspath`, `GeneratedSourceCheckpoint` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/source/apt/` | 共用 KAPT/APT 执行、JSR 269 SPI 和生成发布 |
-| `ARouterInputSemantics`, `ARouterBaseline`, `ARouterProcessorCompatibility` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/source/apt/processors/` | ARouter 语义差异、旧产物恢复及 Fragment/Jetifier 策略 |
+| `AnnotationProcessorRunner`, `AnnotationProcessorClasspath`, `GeneratedSourceCheckpoint` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/source/apt/` | 项目处理器执行、SPI 发现与完整生成目录发布 |
+| `ARouterInputSemantics`, `ARouterBaseline`, `ARouterProcessorCompatibility` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/source/apt/processors/` | ARouter 相关输入、业务 class 关联及 Fragment/Jetifier 策略 |
 | `Example*CustomCompiler` | `custom_compilers/src/main/java/com/sickworm/intellij/jugg/compiler/demo/` | 示例 SPI 实现，覆盖 assemble、delay、hook init 等常见插入形态 |
 
 ---
@@ -80,9 +80,11 @@ BaseCompileContext.customCompilers
 
 ### 4.3 内置 ARouter 处理
 
-`ProcessorRegistration` 默认注册 `ARouterJuggAptProcessor`，不要求 custom compiler 配置或单独 JAR。它复用项目 `annotationProcessor` / `kapt` 依赖，不把 ARouter compiler 打入插件。若外部 `IJuggAptProcessor.id == "ARouter"` 仍在配置中，内置实例跳过，由外部扩展处理；扩展需按当前接口重新编译，迁移时只移除该扩展配置，保留其他 custom compiler。
+`ProcessorRegistration` 默认注册 `ARouterJuggAptProcessor`，不要求 custom compiler 配置或单独 JAR。它复用项目 `annotationProcessor` / `kapt` 依赖，不把 ARouter compiler 打入插件。若 `context.customCompilers` 中存在已加载的外部 `IJuggAptProcessor.id == "ARouter"` 实例，内置实例跳过，由外部扩展处理；扩展需按当前接口重新编译，迁移时只移除该扩展配置，保留其他 custom compiler。
 
-检测只消费本模块本轮 Java/Kotlin 输入，包括已有常量/结构影响传播送来的跟编文件；先用共享文本筛选候选，并核对历史源码身份，避免最后一个注解和 import 删除漏检。`ARouterInputSemantics` 比较 Route、Autowired、Interceptor 实际生成所需的值、类型和身份；同值常量、显式默认值、别名和全限定名归一化，文档选项关闭时忽略说明性参数。普通方法体、注释、无关成员与 import 不作为触发条件。只有确认差异后才遍历模块源码并运行聚合 APT；完成产物消费后的无变化轮次返回空列表。
+`ARouterJuggAptProcessor.prepare()` 比较本轮源码的实际注解输入、声明身份及相关类型结构与现有业务 class，只有确认差异后才收集完整模块源码执行聚合生成。比较包括定制注解属性，不依赖生成模板；普通方法体、格式与无关成员变化不触发生成。删除最后一个注解仍须检查旧 class 的贡献；现有声明的 class 缺失不能误判为新增。源码与 class 无法可靠关联时按下述检测失败边界收口，关联策略见 `ARouterBaseline.classes()` / `requireReliableAssociation()`。
+
+父类关系变化时，`ARouterBaseline.relatedClasses()` 定位已知注解声明及字段类型使用方，在普通语言编译覆盖旧父类 class 前比较相关输入。必须先确认全部相关输入可判断，才发布完整聚合索引；不能因部分输入有变化而忽略其他输入的分析失败。
 
 `JuggAptCompiler` 每模块每轮创建一个 `AptSourceAnalysis`，供 ARouter、Kuikly 和外部处理器共享源码快照；改写文件后，后续消费者必须读到失效重建的快照。`IJuggAptProcessor.process()` 使用统一四参数入口，外部扩展需同步适配并重新编译。
 
@@ -96,13 +98,13 @@ Fragment 要求与所选目标不同才转换 processor 的独立副本，并同
 
 `AnnotationProcessorRunner.generate()` 通过 KAPT 生成 Kotlin stubs，再交 javac 执行选定的项目处理器。产物先留在独立临时目录，完整生成成功后由 `GeneratedSourceCheckpoint.publish()` 发布，再交既有 Kotlin/Java 编译链；普通语言编译保持 APT/KAPT 关闭，DataBinding 的既有输出语义不变。
 
-`GeneratedSourceCheckpoint` 只负责生成源码暂存发布、清单及内容校验。Gradle 生成物基线只存于 checkpoint 签名，inputs.json v3 仅保留处理器环境摘要；每个参与源码仅存 JVM 声明身份与归一化语义的 SHA-256，不再保存注解值、字段类型和泛型等完整语义副本。生成索引可恢复路由注册等结果，却无法完整恢复源码归属、精确注入类型及文档参数；最小摘要维持现有比较，不增加另一套反向语义解析。源码移动可按文件名/声明身份定位，歧义时跳过。checkpoint 签名绑定输入记录与最新生成源码内容；仅在相关判断时校验完整产物。处理器 JAR 内容和选项等环境变化可触发相关输入重新生成，普通无关轮次不扫描 processor JAR 或查询 Fragment。
+生成源码目录只在完整生成成功后发布；生成类收缩时保留旧目录并要求完整 Gradle 构建，不能将部分索引交给后续源码编译。完整构建清空增量目录后，下一轮重新使用 Gradle 生成物基线。
 
-尚未发生 Jugg 生成时，`ARouterBaseline` 按 SourceFile 和声明 JVM 身份恢复同文件多类/嵌套类，按有效生成物版本缓存原始 class。只遍历 class 输出，不扫描模块源码。标准七参数 RouteMeta.build、Provider 注册集合、Interceptor priority、路由参数表和已识别的 getter、cast、TypeWrapper/class literal 注入模板须与 class 匹配；缺 class、未知 fork 模板、未识别的泛型/引用注入旧类型或文档输入无法证明时不把它们当成空旧集合。没有记录且本模块或依赖已有 class/DEX 部署 overlay，或 overlay 模块身份未知时，磁盘 Gradle class 无法证明 overlay 的旧值，本轮跳过。后续比较直接消费与最新 Jugg 生成物绑定的记录，未记录的新源码贡献视为空旧集合，不再混用原 Gradle class。记录或生成物损坏时 warn 并跳过，不能静默退回原 Gradle 值；完整 Gradle 生成基线变化后才重新恢复。v2 磁盘记录先校验原签名，再将旧语义确定性转换为身份和摘要；旧版三段签名只有清单时，必须证明生成源码仍逐字节匹配原 Gradle 基线，才能沿原 class 恢复。旧清单仍用于收缩检查。纯文件删除是否进入本轮仍由上游决定。
+相关检测或完整聚合输入准备失败时，warn 指明受影响文件及原因，说明“本模块本轮跳过生成，索引可能滞后”，其他处理器和普通编译继续。真实 APT 执行失败、生成类收缩和生成文件直接语言诊断保留 failClosed。正常 Java 编译更新 javaClassPath，Kotlin 更新 kotlinClassPath，这些业务 class 是下一轮比较依据；生成目录、业务 class 和设备部署不是同时提交的事务。检测跳过而普通编译成功时，业务 class 可已新、旧索引仍滞后，不保证再次提交相同输入能够补生成；完整 Gradle 构建可恢复一致状态。
 
-检测、恢复和聚合输入分析失败只 warn，并跳过当前模块本轮 ARouter 生成，保留旧记录和其他处理器/正常源码编译；warn 明确注解生成物本轮可能未更新。分析失败不发布部分索引，也不缓存跨轮失败。真实 APT 执行失败、生成类收缩和生成文件直接语言诊断仍 failClosed；收缩要求完整 Gradle 构建。`SourceCompiler` 保留已生成但未完成语言编译/部署的 changed-file 跟踪，重试不因语义相同重新 APT；已消费索引也不反复加入编译。生成源码只由本实例使用的 checkpoint source 目录认领，注册索引沿用既有 App 重启策略。
+APT 成功但语言编译失败时保留已有 changed/compiled/staging/deployed 跟踪，业务 class 仍有差异则下一次请求允许再次聚合 APT。pending 不替代新输入比较，重新生成后消费最新产物；已消费的索引不会反复加入普通轮次。D8 或部署失败后若业务 class 输入已相同，跳过 APT 并继续既有下游重试。processor JAR、依赖和选项变化交给工程模型与完整 Gradle 构建，不维护环境摘要或独立原地 JAR 替换检测。
 
-该求值能力覆盖经真实 processor 验证的最小语义范围，未提供完整 Java/Kotlin 编译器符号分析；复杂 Kotlin 表达式、跨文件顶层常量定位、泛型 Provider 或改变生成规则的 fork 无法可靠判定时局部跳过。实测和支持边界见 `docs/task/2026-10/arouter_processor_capability_refactor_plan.md`。
+语义求值覆盖经过真实官方 processor 和定制注解 fixture 验证的范围，未提供完整 Java/Kotlin 编译器符号分析；无法可靠判定时按检测失败边界局部跳过。实现取舍与验证记录见 `docs/task/2026-10/arouter_class_input_comparison_plan.md`。
 
 ---
 

@@ -5,29 +5,16 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 
-/** Publishes generated sources and their content fingerprint, retaining the existing checkpoint format. */
+/** Publishes complete generated source directories; hashing is used only by the processor JAR cache. */
 class GeneratedSourceCheckpoint(val folder: File) {
     val sourceRoot = File(folder, "sources")
-    fun read(): Pair<String, List<String>>? {
-        val lines = File(folder, "checkpoint.txt").takeIf { it.isFile }?.readLines() ?: return null
-        return lines.firstOrNull()?.let { it to lines.drop(1) }
-    }
-    fun valid(prior: Pair<String, List<String>>, signature: String): Boolean {
-        if (prior.first.substringBeforeLast(':') != signature) return false
-        val files = prior.second.map { File(sourceRoot, it) }
-        return files.all { it.isFile } && prior.first.substringAfterLast(':') == digest(files)
-    }
-    fun publish(generated: File, signature: String, names: List<String>, inputRecord: String) {
+    /** Replaces the complete source directory after a successful aggregate generation. */
+    fun publish(generated: File) {
         val pendingSources = File(folder, "sources.pending")
-        pendingSources.deleteRecursively()
+        check(!pendingSources.exists() || pendingSources.deleteRecursively()) { "Cannot clear $pendingSources" }
         generated.copyRecursively(pendingSources, overwrite = true)
-        val pendingRecord = File(folder, "inputs.pending").apply { writeText(inputRecord) }
-        sourceRoot.deleteRecursively()
+        check(!sourceRoot.exists() || sourceRoot.deleteRecursively()) { "Cannot replace $sourceRoot" }
         Files.move(pendingSources.toPath(), sourceRoot.toPath(), StandardCopyOption.REPLACE_EXISTING)
-        val pending = File(folder, "checkpoint.pending")
-        pending.writeText((listOf("$signature:${digest(names.map { File(sourceRoot, it) })}") + names).joinToString("\n"))
-        Files.move(pending.toPath(), File(folder, "checkpoint.txt").toPath(), StandardCopyOption.REPLACE_EXISTING)
-        Files.move(pendingRecord.toPath(), File(folder, "inputs.json").toPath(), StandardCopyOption.REPLACE_EXISTING)
     }
     companion object {
         /** Hashes canonical paths and bytes, including same-size edits to local processor JARs. */

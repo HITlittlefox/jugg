@@ -8,8 +8,7 @@ import com.sickworm.intellij.jugg.org.objectweb.asm.tree.ClassNode
 import java.io.File
 
 /** Projects current source and baseline class annotations onto the inputs consumed by ARouter. */
-internal class ARouterInputSemantics(private val analysis: AptSourceAnalysis, private val resolver: AptSemanticResolver,
-    private val options: Map<String, String>) {
+internal class ARouterInputSemantics(private val analysis: AptSourceAnalysis, private val resolver: AptSemanticResolver) {
     private val gson = Gson()
     private var baselineTypes = emptyMap<String, ClassNode>()
     private val defaults = mutableMapOf<String, Map<String, Any>>()
@@ -20,15 +19,7 @@ internal class ARouterInputSemantics(private val analysis: AptSourceAnalysis, pr
         facts.declarations.forEach { type ->
             val name = if (facts.packageName.isEmpty()) type.name else "${facts.packageName}.${type.name}"
             val annotations = type.annotations.mapNotNull { annotation(file, name, it) }.toMap()
-            val fields = type.fields.mapNotNull { field ->
-                val annotation = field.annotations.firstNotNullOfOrNull { annotation(file, name, it)?.takeIf { it.first == "Autowired" } }
-                    ?: return@mapNotNull null
-                check(!facts.kotlin || field.annotations.any { it.name == "JvmField" || it.name == "kotlin.jvm.JvmField" }) {
-                    "Kotlin Autowired without an explicit JVM field is not recoverable: $file:${field.name}"
-                }
-                check(field.annotations.none { it.target in listOf("get", "set", "property") }) { "Unsupported Kotlin annotation target in $file" }
-                Field(field.name, resolver.descriptor(field.type, file, name), resolver.genericSignature(field.type, file, name), annotation.second)
-            }
+            val fields = currentFields(name, file)
             project(name, annotations, fields, false, file, result)
         }
         return result
@@ -49,6 +40,18 @@ internal class ARouterInputSemantics(private val analysis: AptSourceAnalysis, pr
         return result
     }
 
+    /** Detects type relationship edits while the old parent class is still available. */
+    fun parentsChanged(file: File, classes: List<ClassNode>): Boolean {
+        val facts = analysis.facts(file)
+        return facts.declarations.any { declaration ->
+            val name = if (facts.packageName.isEmpty()) declaration.name else "${facts.packageName}.${declaration.name}"
+            val old = classes.firstOrNull { it.name.replace('/', '.') == name } ?: return@any false
+            val current = declaration.parents.map { resolver.qualified(it.substringBefore('<'), file, name) }.toSet() - "java.lang.Object"
+            val prior = (listOfNotNull(old.superName) + old.interfaces.orEmpty()).map { it.replace('/', '.') }.toSet() - "java.lang.Object"
+            current != prior
+        }
+    }
+
     private data class Field(val name: String, val descriptor: String, val signature: String?, val annotation: Map<String, Any>)
 
     /** Keeps only facts consumed by route classification, registration and field injection. */
@@ -65,12 +68,11 @@ internal class ARouterInputSemantics(private val analysis: AptSourceAnalysis, pr
         annotations["Interceptor"]?.let { result["$name@Interceptor"] = gson.toJson(listOf(normalize("Interceptor", it), INTERCEPTOR in ancestors)) }
         fields.forEach { field ->
             val fieldKind = fieldKind(field.descriptor, old)
-            val effectiveName = if (fieldKind == "PROVIDER") "" else field.name
-            result["$name#${field.name}"] = gson.toJson(listOf(field.descriptor, field.signature.orEmpty(), normalize("Autowired", field.annotation, effectiveName), kind, fieldKind))
+            result["$name#${field.name}"] = gson.toJson(listOf(field.descriptor, field.signature.orEmpty(), normalize("Autowired", field.annotation), kind, fieldKind))
         }
         if (annotations.containsKey("Route") && kind in listOf("ACTIVITY", "FRAGMENT")) {
             inheritedFields(name, old, file, linkedSetOf()).forEach { field ->
-                result["$name@Param#${field.name}"] = gson.toJson(listOf(field.descriptor, normalize("Autowired", field.annotation, field.name), fieldKind(field.descriptor, old)))
+                result["$name@Param#${field.name}"] = gson.toJson(listOf(field.descriptor, field.signature.orEmpty(), normalize("Autowired", field.annotation), fieldKind(field.descriptor, old)))
             }
         }
     }
@@ -88,7 +90,7 @@ internal class ARouterInputSemantics(private val analysis: AptSourceAnalysis, pr
         check(node.arguments.keys.none { it.startsWith('#') }) { "Unnamed ARouter argument in $file" }
         val values = defaultValues(name).toMutableMap()
         node.arguments.forEach { (key, expression) -> values[key] = resolver.value(expression, file, owner) }
-        check(values.keys.containsAll(REQUIRED.getValue(name))) { "Incomplete $name annotation in $file" }
+        check(values.keys.containsAll(attributes(name))) { "Incomplete $name annotation in $file" }
         return name to values
     }
 
@@ -99,27 +101,39 @@ internal class ARouterInputSemantics(private val analysis: AptSourceAnalysis, pr
         if (short !in NAMES) return null
         val values = defaultValues(short).toMutableMap()
         node.values.orEmpty().chunked(2).forEach { values[it[0] as String] = it[1] }
-        check(values.keys.containsAll(REQUIRED.getValue(short))) { "Incomplete baseline $short annotation" }
+        check(values.keys.containsAll(attributes(short))) { "Incomplete baseline $short annotation" }
         return short to values
     }
 
     private fun defaultValues(name: String): Map<String, Any> = defaults.getOrPut(name) {
         val info = resolver.classInfo("$PACKAGE.$name") ?: error("Missing ARouter annotation definition $name")
-        check(info.methods.filter { it.name != "<clinit>" }.map { it.name }.toSet() == SCHEMA.getValue(name)) {
-            "Unknown ARouter annotation contract $name"
-        }
         info.methods.filter { it.annotationDefault != null }.associate { it.name to it.annotationDefault }
     }
 
-    private fun normalize(name: String, values: Map<String, Any>, fieldName: String = ""): Map<String, Any> {
-        val result = values.toSortedMap().mapValues { (_, value) -> when (value) { is Number -> value.toLong(); is Char -> value.code.toLong(); else -> value } }.toMutableMap()
-        if (options["AROUTER_GENERATE_DOC"] != "enable") {
-            if (name == "Route" || name == "Interceptor") result.remove("name")
-            if (name == "Autowired") result.remove("desc")
+    private fun attributes(name: String): Set<String> = (resolver.classInfo("$PACKAGE.$name")
+        ?: error("Missing ARouter annotation definition $name")).methods.filter { !it.name.startsWith('<') }.map { it.name }.toSet()
+
+    /**
+     * Compares every declared attribute: a fork may consume values ignored by the stock processor.
+     * Keep empty names and groups unchanged; deriving their output belongs to the project processor.
+     */
+    private fun normalize(name: String, values: Map<String, Any>): Map<String, Any> {
+        check(values.keys == attributes(name)) { "Unknown or incomplete $name annotation attributes" }
+        val methods = resolver.classInfo("$PACKAGE.$name")!!.methods.associateBy { it.name }
+        return values.toSortedMap().mapValues { (attribute, value) ->
+            if (methods.getValue(attribute).desc in listOf("()F", "()D") && value is Number) value.toDouble() else normalizeValue(value)
         }
-        if (name == "Autowired" && result["name"] == "") result["name"] = fieldName
-        if (name == "Route" && result["group"] == "") result["group"] = (result.getValue("path") as String).substringAfter('/').substringBefore('/')
-        return result.toSortedMap()
+    }
+
+    private fun normalizeValue(value: Any): Any = when (value) {
+        is Float, is Double -> (value as Number).toDouble()
+        is Number -> value.toLong()
+        is Char -> value.code.toLong()
+        is List<*> -> value.map { normalizeValue(checkNotNull(it)) }
+        is Array<*> -> value.map { normalizeValue(checkNotNull(it)) }
+        is com.sickworm.intellij.jugg.org.objectweb.asm.Type -> value.descriptor
+        is AnnotationNode -> listOf(value.desc, value.values.orEmpty().chunked(2).associate { it[0] to normalizeValue(it[1]) }.toSortedMap(compareBy { it.toString() }))
+        else -> value
     }
 
     private fun directParents(name: String, old: Boolean, file: File?): List<String> {
@@ -182,6 +196,10 @@ internal class ARouterInputSemantics(private val analysis: AptSourceAnalysis, pr
         return type.fields.mapNotNull { field ->
             val annotation = field.annotations.firstNotNullOfOrNull { annotation(file, name, it)?.takeIf { it.first == "Autowired" } }
                 ?: return@mapNotNull null
+            check(!facts.kotlin || field.annotations.any { it.name == "JvmField" || it.name == "kotlin.jvm.JvmField" }) {
+                "Kotlin Autowired without an explicit JVM field is not recoverable: $file:${field.name}"
+            }
+            check(field.annotations.none { it.target in listOf("get", "set", "property") }) { "Unsupported Kotlin annotation target in $file" }
             Field(field.name, resolver.descriptor(field.type, file, name), resolver.genericSignature(field.type, file, name), annotation.second)
         }
     }
@@ -217,8 +235,5 @@ internal class ARouterInputSemantics(private val analysis: AptSourceAnalysis, pr
             "Ljava/lang/Boolean;" to "BOOLEAN", "Ljava/lang/Byte;" to "BYTE", "Ljava/lang/Short;" to "SHORT", "Ljava/lang/Character;" to "CHAR",
             "Ljava/lang/Integer;" to "INT", "Ljava/lang/Long;" to "LONG", "Ljava/lang/Float;" to "FLOAT", "Ljava/lang/Double;" to "DOUBLE", "Ljava/lang/String;" to "STRING")
         private val NAMES = setOf("Route", "Autowired", "Interceptor")
-        private val REQUIRED = mapOf("Route" to setOf("path"), "Autowired" to emptySet(), "Interceptor" to setOf("priority"))
-        private val SCHEMA = mapOf("Route" to setOf("path", "group", "name", "extras", "priority"),
-            "Autowired" to setOf("name", "required", "desc"), "Interceptor" to setOf("priority", "name"))
     }
 }

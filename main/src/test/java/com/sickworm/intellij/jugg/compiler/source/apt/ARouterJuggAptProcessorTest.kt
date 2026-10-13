@@ -102,6 +102,7 @@ class ARouterJuggAptProcessorTest {
     @Test
     fun unchangedDeclarationsReuseSourcesAndRouteChangesRegenerate() {
         val first = generate()
+        compileBusinessSources()
         val contents = first.associate { it.name to it.readText() }
         first.forEach { assertTrue(it.setLastModified(1234567890000L)) }
         assertTrue(generate().isEmpty())
@@ -178,6 +179,7 @@ class ARouterJuggAptProcessorTest {
         source = writeSource("@Route(path = Paths.ROUTE)")
         val generated = generate()
         assertTrue(generated.any { it.readText().contains("/demo/constant") })
+        compileBusinessSources()
         generated.forEach { assertTrue(it.setLastModified(1234567890000L)) }
         source.file.writeText(source.file.readText().replace("extends android.app.Activity {", "extends android.app.Activity { void work() { int changed = 1; }"))
         assertTrue(generate().all { it.lastModified() == 1234567890000L })
@@ -186,11 +188,11 @@ class ARouterJuggAptProcessorTest {
     }
 
     @Test
-    fun changedModuleOptionsRegenerateTheModuleIndexes() {
-        generate().forEach { assertTrue(it.setLastModified(1234567890000L)) }
+    fun moduleOptionsAreLeftToFullGradleBuildsWhenBusinessInputsAreUnchanged() {
+        establishGradleBaseline()
         module = module.copy(javaAnnotationProcessorOptions = module.javaAnnotationProcessorOptions.orEmpty() + ("AROUTER_MODULE_NAME" to "renamed"))
         updateModule()
-        assertFailsWith<JuggAptFatalException> { generate() }
+        assertTrue(generate().isEmpty())
     }
 
     @Test
@@ -326,19 +328,11 @@ class ARouterJuggAptProcessorTest {
     }
 
     @Test
-    fun processorContentChangeWithSameSizeAndTimestampInvalidatesGeneratedSources() {
+    fun processorJarReplacementIsLeftToFullGradleBuildsWhenBusinessInputsAreUnchanged() {
+        establishGradleBaseline()
         val original = compilerJar()
-        val replacement = rewriteJar(original, "local-compiler.jar", comment = "before")
-        replaceCompiler(original, replacement)
-        val files = generate()
-        files.forEach { assertTrue(it.setLastModified(1234567890000L)) }
-        val size = replacement.length()
-        val timestamp = replacement.lastModified()
-        val edited = rewriteJar(replacement, "edited.jar", comment = "after!")
-        edited.copyTo(replacement, overwrite = true)
-        assertTrue(replacement.setLastModified(timestamp))
-        assertEquals(size, replacement.length())
-        assertTrue(generate().all { it.lastModified() != 1234567890000L })
+        replaceCompiler(original, rewriteJar(original, "local-compiler.jar", comment = "changed"))
+        assertTrue(generate().isEmpty())
     }
 
     @Test
@@ -392,7 +386,7 @@ class ARouterJuggAptProcessorTest {
     }
 
     @Test
-    fun generatedJavaErrorRetainsPendingSourcesAndRetryCompletesWithoutRerunningApt() {
+    fun generatedJavaErrorRetainsPendingSourcesAndRetryConsumesLatestGeneration() {
         val executions = installCountingProcessor()
         configureSourceCompilation()
         source.file.writeText("""
@@ -420,7 +414,7 @@ class ARouterJuggAptProcessorTest {
         val retry = sourceCompiler.compile(CompileTask(listOf(source) + pending, File(temporary.root, "retry-dex"), CompileStatusHolder.DEFAULT))
         assertTrue(retry.isAllSuccess, retry.failedFiles.toString())
         assertTrue(retry.outputs.any { it.file.name.contains("ARouter") })
-        assertEquals(count, executions.readLines().size)
+        assertTrue(executions.readLines().size >= count)
     }
 
     @Test
@@ -461,14 +455,17 @@ class ARouterJuggAptProcessorTest {
     fun oneHundredBodyEditsAndEquivalentAnnotationValuesDoNotExecuteApt() {
         val executions = installCountingProcessor()
         generate()
+        compileBusinessSources()
         val before = executions.readLines().size
         val original = source.file.readText()
+        val started = System.nanoTime()
         repeat(100) { iteration ->
             source.file.writeText(original.replace("Activity {}", "Activity { void work() { int value = $iteration; } }"))
             assertTrue(generate().isEmpty())
         }
+        println("ARouter 100 body-edit comparisons: ${(System.nanoTime() - started) / 1_000_000} ms")
         File(source.baseDir, "demo/Paths.java").writeText("package demo; class Paths { static final String PATH = \"/demo/\" + \"first\"; }")
-        source = writeSource("@Route(path = Paths.PATH, group = \"demo\", priority = -1, extras = Integer.MIN_VALUE, name = \"documentation only\")")
+        source = writeSource("@Route(path = Paths.PATH, group = \"\", priority = -1, extras = Integer.MIN_VALUE, name = \"\")")
         assertTrue(generate().isEmpty())
         assertEquals(before, executions.readLines().size, "Apt init must not run for equivalent semantics")
         source = writeSource("@Route(path = \"/demo/changed\")")
@@ -491,13 +488,13 @@ class ARouterJuggAptProcessorTest {
             writeText("package demo; import com.alibaba.android.arouter.facade.annotation.Route; @Route(path=\"/demo/second\") public class Second extends android.app.Activity {}")
         }
         generate()
-        val checkpoint = File(context.incrementalDataDir, "arouter/routes/debug/inputs.json")
-        val before = checkpoint.readText()
+        val folder = File(context.incrementalDataDir, "arouter/routes/debug/sources")
+        val before = folder.walkTopDown().filter { it.isFile }.associate { it.relativeTo(folder).path to it.readText() }
         source = writeSource("@Route(path = \"/demo/changed\")")
         val valid = second.readText()
         second.writeText(valid.replace("path=\"/demo/second\"", "path=unknown()"))
         assertTrue(generate().isEmpty())
-        assertEquals(before, checkpoint.readText())
+        assertEquals(before, folder.walkTopDown().filter { it.isFile }.associate { it.relativeTo(folder).path to it.readText() })
         second.writeText(valid)
         val result = generate()
         assertTrue(result.any { it.readText().contains("/demo/changed") && it.readText().contains("/demo/second") })
@@ -589,19 +586,15 @@ class ARouterJuggAptProcessorTest {
     }
 
     @Test
-    fun strippedSourceIdentityWarnsInsteadOfTreatingTheLastAnnotationAsAbsent() {
+    fun exactDeclarationIdentityStillDetectsRemovalWithoutSourceFileDebugMetadata() {
         establishGradleBaseline()
         val file = File(module.buildPathInfo.javaClassPath, "demo/Screen.class")
         val writer = com.sickworm.intellij.jugg.org.objectweb.asm.ClassWriter(0)
         com.sickworm.intellij.jugg.org.objectweb.asm.ClassReader(file.readBytes()).accept(writer,
             com.sickworm.intellij.jugg.org.objectweb.asm.ClassReader.SKIP_DEBUG)
         file.writeBytes(writer.toByteArray())
-        val logger = org.mockito.kotlin.spy(context.logger)
-        whenever(context.logger).thenReturn(logger)
         source.file.writeText("package demo; public class Screen extends android.app.Activity {}")
-        assertTrue(generate().isEmpty())
-        org.mockito.kotlin.verify(logger).warn(org.mockito.kotlin.argThat<String> { contains("SourceFile identities are missing") }, any<Throwable>())
-        assertFalse(File(context.incrementalDataDir, "arouter/routes/debug/inputs.json").exists())
+        assertFailsWith<JuggAptFatalException> { generate() }
     }
 
     @Test
@@ -613,8 +606,9 @@ class ARouterJuggAptProcessorTest {
     }
 
     @Test
-    fun movingARecordedSourceDoesNotRegenerateAndItsRemovalStillFailsClosed() {
+    fun movingACompiledSourceDoesNotRegenerateAndItsRemovalStillFailsClosed() {
         generate()
+        compileBusinessSources()
         val moved = File(source.baseDir, "moved/Screen.java").apply { parentFile.mkdirs() }
         assertTrue(source.file.renameTo(moved))
         source = source.copy(file = moved)
@@ -624,119 +618,78 @@ class ARouterJuggAptProcessorTest {
     }
 
     @Test
-    fun missingLatestGenerationRecordDoesNotFallBackToOriginalGradleInputs() {
-        val executions = installCountingProcessor()
-        establishGradleBaseline()
-        source = writeSource("@Route(path = \"/demo/latest\")")
-        val latest = generate().associateWith { it.readText() }
-        val before = executions.readLines().size
-        assertTrue(File(context.incrementalDataDir, "arouter/routes/debug/inputs.json").delete())
-        compiler = JuggAptCompiler(context, object : Disposable { override fun dispose() = Unit })
-        assertTrue(generate().isEmpty(), "Missing latest metadata must skip detection instead of regenerating from the old Gradle baseline")
-        assertEquals(before, executions.readLines().size)
-        assertEquals(latest, latest.keys.associateWith { it.readText() })
-    }
-
-    @Test
-    fun missingModernRecordWarnsEvenWhenOutputsMatchTheGradleBaseline() {
+    fun deletingObsoleteMetadataDoesNotAffectComparisonOrGeneration() {
         establishGradleBaseline()
         source = writeSource("@Route(path = \"/demo/latest\")")
         generate()
-        source = writeSource("@Route(path = \"/demo/first\")")
-        assertTrue(generate().any { it.readText().contains("/demo/first") })
+        compileBusinessSources()
+        val folder = File(context.incrementalDataDir, "arouter/routes/debug")
+        File(folder, "inputs.json").writeText("obsolete")
+        File(folder, "checkpoint.txt").writeText("obsolete")
+        assertTrue(File(folder, "inputs.json").delete())
+        assertTrue(File(folder, "checkpoint.txt").delete())
+        compiler = JuggAptCompiler(context, object : Disposable { override fun dispose() = Unit })
+        assertTrue(generate().isEmpty())
+        source = writeSource("@Route(path = \"/demo/next\")")
+        assertTrue(generate().any { it.readText().contains("/demo/next") })
+    }
+
+    @Test
+    fun corruptObsoleteMetadataIsIgnoredAndRemovedAfterSuccessfulGeneration() {
+        establishGradleBaseline()
+        val folder = File(context.incrementalDataDir, "arouter/routes/debug").apply { mkdirs() }
+        File(folder, "inputs.json").writeText("{\"version\":999}")
+        File(folder, "checkpoint.txt").writeText("invalid manifest")
+        assertTrue(generate().isEmpty())
+        source = writeSource("@Route(path = \"/demo/latest\")")
+        assertTrue(generate().isNotEmpty())
+        assertFalse(File(folder, "inputs.json").exists())
+        assertFalse(File(folder, "checkpoint.txt").exists())
+    }
+
+    @Test
+    fun pendingGenerationDoesNotSuppressAnotherInputChangeOrARepeatedApt() {
+        val executions = installCountingProcessor()
+        establishGradleBaseline()
+        source = writeSource("@Route(path = \"/demo/latest\")")
+        assertTrue(generate().isNotEmpty())
+        assertTrue(generate().isNotEmpty(), "Unchanged old business class permits repeated APT after language failure")
+        assertEquals(2, executions.readLines().size)
+        source = writeSource("@Route(path = \"/demo/next\")")
+        assertTrue(generate().any { it.readText().contains("/demo/next") })
+        assertEquals(3, executions.readLines().size)
+        compileBusinessSources()
+        assertTrue(generate().isEmpty())
+    }
+
+    @Test
+    fun missingKnownBusinessClassesWarnInsteadOfUsingEmptyOldInputs() {
+        establishGradleBaseline()
+        File(module.buildPathInfo.javaClassPath, "demo/Screen.class").delete()
+        whenever(context.containsApkClass(any())).thenReturn(listOf(fragmentNode("demo/Screen")))
+        source = writeSource("@Route(path = \"/demo/next\")")
         val logger = org.mockito.kotlin.spy(context.logger)
         whenever(context.logger).thenReturn(logger)
-        assertTrue(File(context.incrementalDataDir, "arouter/routes/debug/inputs.json").delete())
         assertTrue(generate().isEmpty())
         org.mockito.kotlin.verify(logger).warn(org.mockito.kotlin.argThat<String> {
-            contains("Latest ARouter input record is missing")
+            contains("Business classes are missing") && contains("indexes may be stale")
         }, any<Throwable>())
     }
 
     @Test
-    fun latestGeneratedSourcesRemainTheBaselineWithoutMatchingLanguageClasses() {
-        val executions = installCountingProcessor()
+    fun generatedSourceContentsAreNotUsedAsTheInputComparisonBaseline() {
         establishGradleBaseline()
         source = writeSource("@Route(path = \"/demo/latest\")")
-        val latest = generate().associateWith { it.readText() }
-        val before = executions.readLines().size
-        module.buildPathInfo.javaClassPath.deleteRecursively()
-        compiler = JuggAptCompiler(context, object : Disposable { override fun dispose() = Unit })
-        assertTrue(generate().isEmpty())
-        assertEquals(before, executions.readLines().size)
-        assertEquals(latest, latest.keys.associateWith { it.readText() })
-        source = writeSource("@Route(path = \"/demo/next\")")
-        assertTrue(generate().any { it.readText().contains("/demo/next") })
-        assertEquals(before + 1, executions.readLines().size)
-        val overlay = com.sickworm.intellij.jugg.compiler.CompileOutput(
-            com.sickworm.intellij.jugg.compiler.CompileOutput.Type.Dex, File(temporary.root, "overlay.dex"), temporary.root)
-        whenever(context.deployedFiles).thenReturn(listOf(overlay))
-        val second = File(source.baseDir, "demo/Second.java").apply {
-            writeText("package demo; import com.alibaba.android.arouter.facade.annotation.Route; @Route(path=\"/demo/second\") public class Second extends android.app.Activity {}")
-        }
-        source = CompileFile(CompileFile.Type.Java, second, source.baseDir, module)
-        assertTrue(generate().any { it.readText().contains("/demo/next") && it.readText().contains("/demo/second") })
-        assertEquals(before + 2, executions.readLines().size)
-    }
-
-    @Test
-    fun legacyDiskInputsRemainUsableWithoutFallingBackToOldClasses() {
-        val executions = installCountingProcessor()
-        establishGradleBaseline()
-        source = writeSource("@Route(path = \"/demo/latest\")")
-        generate()
-        val folder = File(context.incrementalDataDir, "arouter/routes/debug")
-        val inputFile = File(folder, "inputs.json")
-        val gson = com.google.gson.Gson()
-        val header = com.google.gson.JsonParser.parseString(inputFile.readText()).asJsonObject
-        val checkpoint = File(folder, "checkpoint.txt")
-        val lines = checkpoint.readLines()
-        val baseline = lines.first().substringBefore(':')
-        val semantic = gson.toJson(listOf(sortedMapOf("extras" to Int.MIN_VALUE, "group" to "demo",
-            "path" to "/demo/latest", "priority" to -1), "ACTIVITY", emptyList<String>()))
-        val legacy = gson.toJson(linkedMapOf("version" to 2, "baseline" to baseline,
-            "environment" to header["environment"].asString,
-            "sources" to mapOf(source.file.canonicalPath to mapOf("demo.Screen@Route" to semantic))))
-        inputFile.writeText(legacy)
-        val hash = java.security.MessageDigest.getInstance("SHA-256").digest(legacy.toByteArray())
-            .joinToString("") { "%02x".format(it) }
-        checkpoint.writeText((listOf("$baseline:${header["environment"].asString}:$hash:${lines.first().substringAfterLast(':')}") + lines.drop(1)).joinToString("\n"))
-        module.buildPathInfo.javaClassPath.deleteRecursively()
-        compiler = JuggAptCompiler(context, object : Disposable { override fun dispose() = Unit })
-        val before = executions.readLines().size
-        assertTrue(generate().isEmpty())
-        assertEquals(before, executions.readLines().size)
-        source = writeSource("@Route(path = \"/demo/next\")")
-        assertTrue(generate().any { it.readText().contains("/demo/next") })
-        assertEquals(before + 1, executions.readLines().size)
-    }
-
-    @Test
-    fun damagedLatestGenerationSkipsAptAndCanRecoverInTheNextRound() {
-        val executions = installCountingProcessor()
-        establishGradleBaseline()
-        source = writeSource("@Route(path = \"/demo/latest\")")
-        val latest = generate().associateWith { it.readText() }
-        val inputFile = File(context.incrementalDataDir, "arouter/routes/debug/inputs.json")
-        val record = inputFile.readText()
-        val before = executions.readLines().size
-        inputFile.writeText("{\"version\":999}")
-        assertTrue(generate().isEmpty())
-        assertEquals(before, executions.readLines().size)
-        inputFile.writeText(record)
-        val generated = latest.keys.first()
-        generated.appendText("\n// damaged output")
-        assertTrue(generate().isEmpty())
-        assertEquals(before, executions.readLines().size)
-        generated.writeText(latest.getValue(generated))
+        val latest = generate()
+        compileBusinessSources()
+        latest.first().appendText("\n// externally changed output")
         assertTrue(generate().isEmpty())
         source = writeSource("@Route(path = \"/demo/next\")")
         assertTrue(generate().any { it.readText().contains("/demo/next") })
-        assertEquals(before + 1, executions.readLines().size)
     }
 
     @Test
-    fun mismatchedOriginalClassPriorityDoesNotCreateANewGenerationRecord() {
+    fun compiledAnnotationPriorityChangesAreComparedWithoutGeneratedTemplateValidation() {
         establishGradleBaseline()
         val modified = source.file.readText().replace("path = \"/demo/first\"", "path = \"/demo/first\", priority = 1")
         source.file.writeText(modified)
@@ -745,21 +698,340 @@ class ARouterJuggAptProcessorTest {
         assertEquals(0, javac.run(null, null, null, "-proc:none", "-classpath", paths.joinToString(File.pathSeparator),
             "-d", module.buildPathInfo.javaClassPath.path, source.file.path))
         source.file.writeText(modified.replace(", priority = 1", ""))
-        assertTrue(generate().isEmpty())
+        assertTrue(generate().isNotEmpty())
         assertFalse(File(context.incrementalDataDir, "arouter/routes/debug/inputs.json").exists())
+    }
+
+    @Test
+    fun documentationInputChangesRunAptEvenWhenGeneratedRoutesAreEqual() {
+        val executions = installCountingProcessor()
+        establishGradleBaseline()
+        source = writeSource("@Route(path = \"/demo/first\", name = \"changed description\")")
+        assertTrue(generate().isNotEmpty())
+        assertEquals(1, executions.readLines().size)
+    }
+
+    @Test
+    fun runtimeImportWithOverlayDoesNotWarnOrRunApt() {
+        establishGradleBaseline()
+        val logger = org.mockito.kotlin.spy(context.logger)
+        whenever(context.logger).thenReturn(logger)
+        val overlay = com.sickworm.intellij.jugg.compiler.CompileOutput(
+            com.sickworm.intellij.jugg.compiler.CompileOutput.Type.Dex, File(temporary.root, "overlay.dex"), temporary.root)
+        whenever(context.deployedFiles).thenReturn(listOf(overlay))
+        val ordinary = File(source.baseDir, "demo/MainActivity.java").apply {
+            writeText("package demo; import com.alibaba.android.arouter.launcher.ARouter; class MainActivity { void work() {} }")
+        }
+        source = CompileFile(CompileFile.Type.Java, ordinary, source.baseDir, module)
+        assertTrue(generate().isEmpty())
+        org.mockito.kotlin.verify(logger, org.mockito.kotlin.never()).warn(any<String>(), any<Throwable>())
+    }
+
+    @Test
+    fun aChangedInputCannotHideAnUnresolvedInputInTheSameRound() {
+        establishGradleBaseline()
+        source = writeSource("@Route(path = \"/demo/changed\")")
+        val broken = File(source.baseDir, "demo/Broken.java").apply {
+            writeText("package demo; import com.alibaba.android.arouter.facade.annotation.Route; @Route(path=unknown()) class Broken extends android.app.Activity {}")
+        }
+        val result = compiler.compile(CompileTask(listOf(source,
+            CompileFile(CompileFile.Type.Java, broken, source.baseDir, module)), temporary.root, CompileStatusHolder.DEFAULT))
+        assertTrue(result.outputs.isEmpty())
+    }
+
+    @Test
+    fun customFixtureAcceptsAppAndEightArgumentRouteMetaBuild() {
+        val fixture = System.getenv("JUGG_AROUTER_FIXTURE")?.let(::File)
+        org.junit.Assume.assumeTrue("Set JUGG_AROUTER_FIXTURE to the custom project's processor artifacts", fixture?.isDirectory == true)
+        val root = checkNotNull(fixture)
+        val api = File(temporary.root, "fixture-api.jar")
+        JarFile(File(root, "arouter-api-release.aar")).use { jar ->
+            api.writeBytes(jar.getInputStream(jar.getJarEntry("classes.jar")).use { it.readBytes() })
+        }
+        processorJars = listOf(File(root, "arouter-compiler.jar"), File(root, "arouter-annotation.jar")) +
+            File(root, "processor-deps").listFiles()!!.filter { it.extension == "jar" }
+        libraryJars = libraryJars.filterNot { it.name.startsWith("arouter-api") } + api
+        module = module.copy(annotationProcessorDependencies = processorJars.map { LibraryDependency(it.name, it) })
+        updateModule()
+        source = writeSource("@Route(path = \"/demo/first\", app = \"demo\")")
+        establishGradleBaseline()
+        assertTrue(generate().isEmpty())
+        source = writeSource("@Route(path = \"/demo/first\", app = \"other\")")
+        val generated = generate()
+        assertTrue(generated.any { it.readText().contains("\"other\"") && it.readText().contains("RouteMeta.build") })
+        assertTrue(generated.any { file -> com.github.javaparser.StaticJavaParser.parse(file)
+            .findAll(com.github.javaparser.ast.expr.MethodCallExpr::class.java).any { it.nameAsString == "build" && it.arguments.size == 8 } })
+        compileBusinessSources()
+        assertTrue(generate().isEmpty())
+        source = writeSource("@Route(path = \"/demo/next\", app = \"other\")")
+        configureSourceCompilation()
+        val flow = SourceCompiler(context, object : Disposable { override fun dispose() = Unit })
+        val result = flow.compile(CompileTask(listOf(source), File(temporary.root, "fixture-dex"), CompileStatusHolder.DEFAULT))
+        assertTrue(result.isAllSuccess, result.failedFiles.toString())
+        assertTrue(result.outputs.any { it.file.name.contains("ARouter") })
+        assertEquals(setOf("/demo/next"), resolvedRoutes("com.tencent.yb.routes.ARouter\$\$Group\$\$demo"))
+    }
+
+    @Test
+    fun parentTypeChangeFlowUpdatesRouteKindBeforeBusinessClassAdvances() {
+        val parent = File(source.baseDir, "demo/BaseScreen.java").apply {
+            writeText("package demo; public class BaseScreen extends android.app.Activity {}")
+        }
+        source.file.writeText(source.file.readText().replace("extends android.app.Activity", "extends BaseScreen"))
+        establishGradleBaseline()
+        configureSourceCompilation()
+        parent.writeText("package demo; public class BaseScreen extends android.app.Service { public android.os.IBinder onBind(android.content.Intent intent) { return null; } }")
+        val input = CompileFile(CompileFile.Type.Java, parent, source.baseDir, module)
+        val flow = SourceCompiler(context, object : Disposable { override fun dispose() = Unit })
+        val result = flow.compile(CompileTask(listOf(input), File(temporary.root, "parent-dex"), CompileStatusHolder.DEFAULT))
+        assertTrue(result.isAllSuccess, result.failedFiles.toString())
+        assertTrue(result.outputs.any { it.file.name.contains("ARouter") })
+        val index = File(context.incrementalDataDir, "arouter/routes/debug/sources")
+        assertTrue(index.walkTopDown().any { it.isFile && it.readText().contains("RouteType.SERVICE") })
+        val followup = flow.compile(CompileTask(listOf(source), File(temporary.root, "child-dex"), CompileStatusHolder.DEFAULT))
+        assertTrue(followup.isAllSuccess, followup.failedFiles.toString())
+        assertEquals(setOf("/demo/first"), resolvedRoutes())
+    }
+
+    @Test
+    fun inheritedAutowiredTypeChangeFlowCompilesUpdatedParameterIndexes() {
+        val parent = File(source.baseDir, "demo/BaseScreen.java").apply {
+            writeText("package demo; public class BaseScreen extends android.app.Activity { @com.alibaba.android.arouter.facade.annotation.Autowired public int user; }")
+        }
+        source.file.writeText(source.file.readText().replace("extends android.app.Activity", "extends BaseScreen"))
+        establishGradleBaseline()
+        configureSourceCompilation()
+        parent.writeText(parent.readText().replace("int user", "String user"))
+        val input = CompileFile(CompileFile.Type.Java, parent, source.baseDir, module)
+        val flow = SourceCompiler(context, object : Disposable { override fun dispose() = Unit })
+        val result = flow.compile(CompileTask(listOf(input), File(temporary.root, "parent-dex"), CompileStatusHolder.DEFAULT))
+        assertTrue(result.isAllSuccess, result.failedFiles.toString())
+        assertTrue(result.outputs.any { it.file.name.contains("ARouter") })
+        val followup = flow.compile(CompileTask(listOf(source), File(temporary.root, "child-dex"), CompileStatusHolder.DEFAULT))
+        assertTrue(followup.isAllSuccess, followup.failedFiles.toString())
+        val paths = listOf(module.buildPathInfo.javaClassPath, context.androidJar) + libraryJars + processorJars
+        java.net.URLClassLoader(paths.map { it.toURI().toURL() }.toTypedArray(), ClassLoader.getPlatformClassLoader()).use { loader ->
+            val type = loader.loadClass("com.alibaba.android.arouter.routes.ARouter\$\$Group\$\$demo")
+            val routes = linkedMapOf<String, Any>()
+            type.getMethod("loadInto", Map::class.java).invoke(type.getDeclaredConstructor().newInstance(), routes)
+            val meta = routes.getValue("/demo/first")
+            assertEquals(mapOf("user" to 8), meta.javaClass.getMethod("getParamsType").invoke(meta))
+        }
+    }
+
+    @Test
+    fun javaFailureWithPendingSourcesAndAnotherRouteEditConsumesTheLatestGeneration() {
+        val executions = installCountingProcessor()
+        establishGradleBaseline()
+        configureSourceCompilation()
+        source = writeSource("@Route(path = \"/demo/latest\")")
+        source.file.writeText(source.file.readText().replace("Activity {}", "Activity { void work() { missing(); } }"))
+        val tracked = linkedSetOf<File>()
+        val trackingContext = object : ICompileContext by context {
+            override fun addChangedFile(files: List<ChangedFile>) { tracked += files.map { it.file } }
+            override fun removeChangedFile(files: List<File>) { tracked -= files.toSet() }
+        }
+        val flow = SourceCompiler(trackingContext, object : Disposable { override fun dispose() = Unit })
+        val failed = flow.compile(CompileTask(listOf(source), File(temporary.root, "failed-dex"), CompileStatusHolder.DEFAULT))
+        assertFalse(failed.isAllSuccess)
+        assertTrue(tracked.isNotEmpty())
+        source = writeSource("@Route(path = \"/demo/next\")")
+        val root = File(context.incrementalDataDir, "arouter/routes/debug/sources")
+        val pending = tracked.map { CompileFile(CompileFile.Type.Java, it, root, module) }
+        val retry = flow.compile(CompileTask(listOf(source) + pending, File(temporary.root, "retry-dex"), CompileStatusHolder.DEFAULT))
+        assertTrue(retry.isAllSuccess, retry.failedFiles.toString())
+        assertEquals(2, executions.readLines().size)
+        assertEquals(setOf("/demo/next"), resolvedRoutes())
+    }
+
+    @Test
+    fun kotlinBusinessClassComparisonSkipsEquivalentAliasesAndDefaultsAfterRealCompilation() {
+        val executions = installCountingProcessor()
+        val java = source
+        val toolchain = System.getProperty("arouter.test.kotlin").split(File.pathSeparator).map(::File)
+        module = module.copy(kotlinPlugins = toolchain, kotlinJvmTarget = "1.8")
+        libraryJars += toolchain.filter { it.name.startsWith("kotlin-stdlib-") || it.name.startsWith("annotations-") }
+        val kotlin = File(source.baseDir, "demo/KotlinScreen.kt").apply {
+            writeText("package demo\nimport com.alibaba.android.arouter.facade.annotation.Route as Destination\n@Destination(path = \"/demo/kotlin\")\nclass KotlinScreen : android.app.Activity()")
+        }
+        source = CompileFile(CompileFile.Type.Kotlin, kotlin, source.baseDir, module)
+        updateModule()
+        configureSourceCompilation()
+        val flow = SourceCompiler(context, object : Disposable { override fun dispose() = Unit })
+        val result = flow.compile(CompileTask(listOf(source, java.copy(module = module)), File(temporary.root, "kotlin-dex"), CompileStatusHolder.DEFAULT))
+        assertTrue(result.isAllSuccess, result.failedFiles.toString())
+        assertEquals(1, executions.readLines().size)
+        kotlin.writeText("package demo\n@com.alibaba.android.arouter.facade.annotation.Route(name = \"\", group = \"\", path = \"/demo/kotlin\")\nclass KotlinScreen : android.app.Activity()")
+        assertTrue(generate().isEmpty())
+        assertEquals(1, executions.readLines().size)
+        kotlin.writeText(kotlin.readText().replace("/demo/kotlin", "/demo/changed"))
+        val followup = flow.compile(CompileTask(listOf(source), File(temporary.root, "kotlin-followup"), CompileStatusHolder.DEFAULT))
+        assertTrue(followup.isAllSuccess, followup.failedFiles.toString())
+        assertEquals(2, executions.readLines().size)
+        assertEquals(setOf("/demo/first", "/demo/changed"), resolvedRoutes())
+    }
+
+    @Test
+    fun anExistingEmptyJuggDirectoryDoesNotBorrowTheGradleGeneratedClassList() {
+        establishGradleBaseline()
+        File(context.incrementalDataDir, "arouter/routes/debug/sources").mkdirs()
+        source = writeSource("@Route(path = \"/other/first\")")
+        assertTrue(generate().any { it.name.contains("other") })
+    }
+
+    @Test
+    fun aNewAnnotatedDeclarationCanBeComparedAgainstAnEmptyOldContribution() {
+        establishGradleBaseline()
+        val second = File(source.baseDir, "demo/Second.java").apply {
+            writeText("package demo; @com.alibaba.android.arouter.facade.annotation.Route(path=\"/demo/second\") public class Second extends android.app.Activity {}")
+        }
+        source = CompileFile(CompileFile.Type.Java, second, source.baseDir, module)
+        assertTrue(generate().any { it.readText().contains("/demo/second") && it.readText().contains("/demo/first") })
+    }
+
+    @Test
+    fun kotlinSuccessAndJavaFailureRetainPendingAndRetryGeneratesTheNewJavaRoute() {
+        val executions = installCountingProcessor()
+        val toolchain = System.getProperty("arouter.test.kotlin").split(File.pathSeparator).map(::File)
+        module = module.copy(kotlinPlugins = toolchain, kotlinJvmTarget = "1.8")
+        libraryJars += toolchain.filter { it.name.startsWith("kotlin-stdlib-") || it.name.startsWith("annotations-") }
+        updateModule()
+        val kotlin = File(source.baseDir, "demo/KotlinScreen.kt").apply {
+            writeText("package demo\n@com.alibaba.android.arouter.facade.annotation.Route(path = \"/demo/kotlin\")\nclass KotlinScreen : android.app.Activity()")
+        }
+        val kotlinInput = CompileFile(CompileFile.Type.Kotlin, kotlin, source.baseDir, module)
+        source.file.writeText(source.file.readText().replace("Activity {}", "Activity { void work() { missing(); } }"))
+        configureSourceCompilation()
+        val tracked = linkedSetOf<File>()
+        val trackingContext = object : ICompileContext by context {
+            override fun addChangedFile(files: List<ChangedFile>) { tracked += files.map { it.file } }
+            override fun removeChangedFile(files: List<File>) { tracked -= files.toSet() }
+        }
+        val flow = SourceCompiler(trackingContext, object : Disposable { override fun dispose() = Unit })
+        val failed = flow.compile(CompileTask(listOf(kotlinInput, source), File(temporary.root, "mixed-failure"), CompileStatusHolder.DEFAULT))
+        assertFalse(failed.isAllSuccess)
+        assertTrue(File(module.buildPathInfo.kotlinClassPath, "demo/KotlinScreen.class").isFile)
+        assertTrue(tracked.any { it.name.contains("ARouter") })
+        source = writeSource("@Route(path = \"/demo/next\")")
+        val root = File(context.incrementalDataDir, "arouter/routes/debug/sources")
+        val pending = tracked.map { CompileFile(CompileFile.Type.Java, it, root, module) }
+        val retry = flow.compile(CompileTask(listOf(source, kotlinInput) + pending, File(temporary.root, "mixed-retry"), CompileStatusHolder.DEFAULT))
+        assertTrue(retry.isAllSuccess, retry.failedFiles.toString())
+        assertEquals(2, executions.readLines().size)
+        assertEquals(setOf("/demo/next", "/demo/kotlin"), resolvedRoutes())
+    }
+
+    @Test
+    fun dexPhaseFailureAfterLanguageCompilationRetriesWithoutAnotherApt() {
+        val executions = installCountingProcessor()
+        configureSourceCompilation()
+        val destination = File(temporary.root, "dex-output")
+        whenever(context.getDesugarInfo(any<com.sickworm.intellij.jugg.compiler.ClassPreparation>(), any(), any()))
+            .thenReturn(com.sickworm.intellij.jugg.compiler.DesugarInfo.EMPTY.copy(desugaredLibraryConfiguration = "invalid json"))
+        val tracked = linkedSetOf<File>()
+        val trackingContext = object : ICompileContext by context {
+            override fun addChangedFile(files: List<ChangedFile>) { tracked += files.map { it.file } }
+            override fun removeChangedFile(files: List<File>) { tracked -= files.toSet() }
+        }
+        val flow = SourceCompiler(trackingContext, object : Disposable { override fun dispose() = Unit })
+        val failed = flow.compile(CompileTask(listOf(source), destination, CompileStatusHolder.DEFAULT))
+        assertFalse(failed.isAllSuccess)
+        assertTrue(File(module.buildPathInfo.javaClassPath, "demo/Screen.class").isFile)
+        assertTrue(tracked.any { it.name.contains("ARouter") })
+        assertEquals(1, executions.readLines().size)
+        whenever(context.getDesugarInfo(any<com.sickworm.intellij.jugg.compiler.ClassPreparation>(), any(), any()))
+            .thenReturn(com.sickworm.intellij.jugg.compiler.DesugarInfo.EMPTY)
+        val root = File(context.incrementalDataDir, "arouter/routes/debug/sources")
+        val pending = tracked.map { CompileFile(CompileFile.Type.Java, it, root, module) }
+        val retry = flow.compile(CompileTask(listOf(source) + pending, destination, CompileStatusHolder.DEFAULT))
+        assertTrue(retry.isAllSuccess, retry.failedFiles.toString())
+        assertTrue(retry.outputs.any { it.type == com.sickworm.intellij.jugg.compiler.CompileOutput.Type.Dex })
+        assertEquals(1, executions.readLines().size)
+        assertEquals(setOf("/demo/first"), resolvedRoutes())
+    }
+
+    @Test
+    fun providerInterfaceChangeUpdatesTheActualRegistrationKeys() {
+        for (name in listOf("FirstProvider", "SecondProvider")) {
+            File(source.baseDir, "demo/$name.java").writeText("package demo; public interface $name extends com.alibaba.android.arouter.facade.template.IProvider {}")
+        }
+        source.file.writeText(source.file.readText().replace("extends android.app.Activity {}", "implements FirstProvider { public void init(android.content.Context context) {} }"))
+        establishGradleBaseline()
+        configureSourceCompilation()
+        source.file.writeText(source.file.readText().replace("implements FirstProvider", "implements SecondProvider"))
+        val flow = SourceCompiler(context, object : Disposable { override fun dispose() = Unit })
+        val result = flow.compile(CompileTask(listOf(source), File(temporary.root, "provider-dex"), CompileStatusHolder.DEFAULT))
+        assertTrue(result.isAllSuccess, result.failedFiles.toString())
+        val paths = listOf(module.buildPathInfo.javaClassPath, context.androidJar) + libraryJars + processorJars
+        java.net.URLClassLoader(paths.map { it.toURI().toURL() }.toTypedArray(), ClassLoader.getPlatformClassLoader()).use { loader ->
+            val type = loader.loadClass("com.alibaba.android.arouter.routes.ARouter\$\$Providers\$\$routes")
+            val providers = linkedMapOf<String, Any>()
+            type.getMethod("loadInto", Map::class.java).invoke(type.getDeclaredConstructor().newInstance(), providers)
+            assertEquals(setOf("demo.SecondProvider"), providers.keys)
+        }
+    }
+
+    @Test
+    fun genericAutowiredTypeChangesRegenerateEvenWhenErasedFieldTypesAreEqual() {
+        source.file.writeText(source.file.readText().replace("Activity {}", "Activity { @com.alibaba.android.arouter.facade.annotation.Autowired public java.util.List<String> users; }"))
+        establishGradleBaseline()
+        assertTrue(generate().isEmpty())
+        source.file.writeText(source.file.readText().replace("List<String>", "List<Integer>"))
+        val generated = generate()
+        assertTrue(generated.any { it.name.contains("Autowired") && it.readText().contains("List<Integer>") })
+    }
+
+    @Test
+    fun ambiguousSameSourceFileAcrossPackagesWarnsInsteadOfInventingAnEmptyOldInput() {
+        File(source.baseDir, "other/Screen.java").apply {
+            parentFile.mkdirs()
+            writeText("package other; @com.alibaba.android.arouter.facade.annotation.Route(path=\"/demo/other\") public class Screen extends android.app.Activity {}")
+        }
+        establishGradleBaseline()
+        assertTrue(generate().isEmpty(), "Exact package/declaration association must ignore another package's SourceFile")
+        val moved = File(source.baseDir, "third/Screen.java").apply { parentFile.mkdirs() }
+        assertTrue(source.file.renameTo(moved))
+        moved.writeText(moved.readText().replace("package demo;", "package third;"))
+        source = source.copy(file = moved)
+        val logger = org.mockito.kotlin.spy(context.logger)
+        whenever(context.logger).thenReturn(logger)
+        assertTrue(generate().isEmpty())
+        org.mockito.kotlin.verify(logger).warn(org.mockito.kotlin.argThat<String> { contains("Ambiguous SourceFile") }, any<Throwable>())
+    }
+
+    @Test
+    fun removalChecksIncludeEveryJavaClassInTheOwnedGenerationDirectory() {
+        generate()
+        val helper = File(context.incrementalDataDir, "arouter/routes/debug/sources/demo/LegacyRegistry.java").apply {
+            parentFile.mkdirs()
+            writeText("package demo; public class LegacyRegistry {}")
+        }
+        source = writeSource("@Route(path = \"/demo/next\")")
+        assertFailsWith<JuggAptFatalException> { generate() }
+        assertTrue(helper.isFile, "A shrinking generation must keep every prior source")
+    }
+
+    /** Advances business classes with the normal Java compiler, leaving generated indexes untouched. */
+    private fun compileBusinessSources() {
+        val sources = module.sourceDirs.flatMap { it.walkTopDown().filter { file -> file.isFile && file.extension == "java" }.toList() }
+        val paths = context.getModuleDependencies(module, CompileTask(listOf(source), temporary.root, CompileStatusHolder.DEFAULT))
+        module.buildPathInfo.javaClassPath.mkdirs()
+        val arguments = listOf("-proc:none", "-classpath", paths.joinToString(File.pathSeparator),
+            "-d", module.buildPathInfo.javaClassPath.path) + sources.map { it.path }
+        assertEquals(0, javax.tools.ToolProvider.getSystemJavaCompiler().run(null, null, null, *arguments.toTypedArray()))
     }
 
     private fun configureSourceCompilation() {
         val classpath = context.getModuleDependencies(module, CompileTask(listOf(source), temporary.root, CompileStatusHolder.DEFAULT))
-        whenever(context.getModuleDependencies(any(), any())).thenReturn(classpath + module.buildPathInfo.javaClassPath.path)
+        whenever(context.getModuleDependencies(any(), any())).thenReturn(classpath + module.buildPathInfo.javaClassPath.path + module.buildPathInfo.kotlinClassPath.path)
         whenever(context.moduleBelongsApkMap).thenReturn(com.sickworm.intellij.jugg.ModuleApkBelongs(emptyMap(), emptyMap()))
         whenever(context.getDesugarInfo(any<com.sickworm.intellij.jugg.compiler.ClassPreparation>(), any(), any())).thenReturn(com.sickworm.intellij.jugg.compiler.DesugarInfo.EMPTY)
     }
 
-    private fun resolvedRoutes(): Set<String> {
-        val paths = listOf(module.buildPathInfo.javaClassPath, context.androidJar) + libraryJars + processorJars
-        java.net.URLClassLoader(paths.map { it.toURI().toURL() }.toTypedArray(), null).use { loader ->
-            val type = loader.loadClass("com.alibaba.android.arouter.routes.ARouter\$\$Group\$\$demo")
+    private fun resolvedRoutes(groupClass: String = "com.alibaba.android.arouter.routes.ARouter\$\$Group\$\$demo"): Set<String> {
+        val paths = listOf(module.buildPathInfo.javaClassPath, module.buildPathInfo.kotlinClassPath, context.androidJar) + libraryJars + processorJars
+        java.net.URLClassLoader(paths.map { it.toURI().toURL() }.toTypedArray(), ClassLoader.getPlatformClassLoader()).use { loader ->
+            val type = loader.loadClass(groupClass)
             val routes = linkedMapOf<String, Any>()
             type.getMethod("loadInto", Map::class.java).invoke(type.getDeclaredConstructor().newInstance(), routes)
             return routes.keys
@@ -811,6 +1083,7 @@ class ARouterJuggAptProcessorTest {
     }
 
     private fun establishGradleBaseline() {
+        File(context.incrementalDataDir, "arouter").deleteRecursively()
         val generated = File(temporary.root, "gradle-generated").apply { deleteRecursively(); mkdirs() }
         val classes = module.buildPathInfo.javaClassPath.apply { deleteRecursively(); mkdirs() }
         val javac = javax.tools.ToolProvider.getSystemJavaCompiler()
