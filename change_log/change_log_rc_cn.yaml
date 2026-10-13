@@ -1,3 +1,13 @@
+- version: 3.5.4
+  date: 2026.10.13
+  updates:
+    - "[feature][diagnostics] 支持在编译失败、运行时崩溃或修改未生效时使用 \"Ask AI\" 排查，生成本地排查提示词并保留现场快照"
+    - "[optimize][compile] 优化增量编译失败后的重试提示文案"
+    - "[bugfix][ide] 修复打开工程且 ADB 正在初始化时 IDE 界面卡顿的问题"
+    - "[bugfix][compat] 修复 Android Studio Narwhal 无法自动创建 Run configuration"
+    - "[bugfix][compile] 修复 DataBinding 开启时，非 DataBinding 布局热部署后部分页面崩溃的问题"
+    - "[bugfix][compile] 修复 DataBinding 产物概率部署失败的问题"
+
 - version: 3.5.3
   date: 2026.10.10
   updates:

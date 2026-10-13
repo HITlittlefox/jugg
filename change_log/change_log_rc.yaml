@@ -1,3 +1,13 @@
+- version: 3.5.4
+  date: 2026.10.13
+  updates:
+    - "[feature][diagnostics] Support \"Ask AI\" investigation for compile failures, runtime crashes, or unapplied changes with localized prompts and preserved snapshots"
+    - "[optimize][compile] Improve retry guidance after incremental compile failures"
+    - "[bugfix][ide] Fix IDE UI freezes on project open while ADB is initializing"
+    - "[bugfix][compat] Fix failure to automatically create Run Configurations in Android Studio Narwhal"
+    - "[bugfix][compile] Fix crashes on certain pages after hot deploying non-DataBinding layouts when DataBinding is enabled"
+    - "[bugfix][compile] Fix occasional deploy failures for DataBinding artifacts"
+
 - version: 3.5.3
   date: 2026.10.10
   updates:

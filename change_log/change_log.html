@@ -1,5 +1,5 @@
 <h1>Change Log</h1>
-<h2>3.5.3 (2026.10.10)</h2>
+<h2>3.5.4 (2026.10.13)</h2>
 <ol>
     <li>[feature] Support Flutter and C++ source changes: run Gradle tasks to generate native libraries, then continue with Jugg incremental builds</li>
     <li>[feature] Support incremental updates for system apps</li>
@@ -13,6 +13,7 @@
     <li>[feature][settings] Add "Confirm fallback when too many changes" setting to toggle between automatic fallback and a confirmation prompt when too many files change</li>
     <li>[feature][agent] Support one-click installation for Anti-gravity skills and hooks</li>
     <li>[feature][diagnostics] Preserve historical logs across project clean</li>
+    <li>[feature][diagnostics] Support "Ask AI" investigation for compile failures, runtime crashes, or unapplied changes with localized prompts and preserved snapshots</li>
     <li>[optimize] Show a concise warning when Dex compilation falls back</li>
     <li>[optimize] Reduce latency on the self-built deploy channel</li>
     <li>[optimize] Support apps without a regular launcher activity by starting the home activity or stopping directly after deployment</li>
@@ -20,6 +21,7 @@
     <li>[optimize][ide] Automatically activate the Run window when running a project for the first time</li>
     <li>[optimize][compile] Improve file change detection when running immediately after git pull to avoid missed updates</li>
     <li>[optimize][compile] Accurately report file count in the notification balloon when compiled changes await deployment</li>
+    <li>[optimize][compile] Improve retry guidance after incremental compile failures</li>
     <li>[bugfix] Restore Bumblebee run configuration lookup and naming</li>
     <li>[bugfix] Fix Marketplace listing issues by removing incompatible APIs and updating Gradle sync handling</li>
     <li>[bugfix] Prevent profile builds from using debug task metadata</li>
@@ -44,6 +46,10 @@
     <li>[bugfix][compat] Fix compatibility with Android Studio Rabbit 2</li>
     <li>[bugfix][compile] Fix duplicate class errors when incrementally compiling Kotlin BindingAdapters</li>
     <li>[bugfix][deploy] Fix deploy failure when switching devices in projects where APK names change on each build</li>
+    <li>[bugfix][ide] Fix IDE UI freezes on project open while ADB is initializing</li>
+    <li>[bugfix][compat] Fix failure to automatically create Run Configurations in Android Studio Narwhal</li>
+    <li>[bugfix][compile] Fix crashes on certain pages after hot deploying non-DataBinding layouts when DataBinding is enabled</li>
+    <li>[bugfix][compile] Fix occasional deploy failures for DataBinding artifacts</li>
 </ol>
 <h2>3.4.3 (2026.09.09)</h2>
 <ol>
