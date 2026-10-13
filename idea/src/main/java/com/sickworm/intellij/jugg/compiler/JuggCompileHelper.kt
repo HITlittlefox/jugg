@@ -209,7 +209,7 @@ class JuggCompilerHelper(
             } else if (!incrementalResult.isCanFallback && !(uiHandler.isCanceled)) {
                 logger.warn("\nFound incremental compile error. Please see logs for details.")
                 if (!uiHandler.isRpcMode) {
-                    logger.warn("Run again directly will fall back to gradle compile.\n")
+                    logger.warn("Running again without changing any files will fall back to a Gradle build.\n")
                 }
                 return incrementalResult
             }
