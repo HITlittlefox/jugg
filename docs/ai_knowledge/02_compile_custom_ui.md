@@ -88,6 +88,8 @@ BaseCompileContext.customCompilers
 
 `JuggAptCompiler` 每模块每轮创建一个 `AptSourceAnalysis`，供 ARouter、Kuikly 和外部处理器共享源码快照；改写文件后，后续消费者必须读到失效重建的快照。`IJuggAptProcessor.process()` 使用统一四参数入口，外部扩展需同步适配并重新编译。
 
+ARouter 的 `AptSemanticResolver` 只在本轮准备期间复用类型和源码查询结果，包括未找到的空结果，避免重复遍历依赖源码路径和打开 classpath JAR。下一轮重新查询，不缓存跨轮缺失状态。
+
 常量影响传播复用既有 ConstRef 链路，使用方跟编时按新常量值重新比较，即使其源码文本未变化。调用链和阶段职责见 `03_deploy_const_ref.md` §4。
 
 `ARouterProcessorCompatibility.projectProcessor()` 从项目依赖的实际 JSR 269 SPI 发现处理器，生成时仅执行选中的 ARouter 集合；缺失、歧义或不完整的 SPI 会使生成失败。项目参数接受 `AROUTER_MODULE_NAME` 或 `moduleName`，其余选项原样透传，kapt 同键覆盖 Java 配置；未单独适配早期 `@Param` 等规则差异。

@@ -18,6 +18,7 @@ import java.util.jar.JarFile
 /** Resolves annotation constants and types on demand, preferring current source over compiled values. */
 class AptSemanticResolver(private val context: ICompileContext, private val module: ModuleInfo,
     private val analysis: AptSourceAnalysis) {
+    // Cache misses within this round too; getOrPut would repeat lookups for null values.
     private val classes = mutableMapOf<String, ClassNode?>()
     private val sources = mutableMapOf<String, File?>()
     private val values = mutableMapOf<String, Any>()
@@ -26,7 +27,8 @@ class AptSemanticResolver(private val context: ICompileContext, private val modu
         module.buildPathInfo.allClassPath + context.getModuleDependencies(module, CompileTask(emptyList(), context.tempCompileDir, CompileStatusHolder.DEFAULT)).map(::File)
     }
 
-    fun classInfo(name: String): ClassNode? = classes.getOrPut(name) {
+    fun classInfo(name: String): ClassNode? {
+        if (classes.containsKey(name)) return classes[name]
         val path = name.replace('.', '/') + ".class"
         val bytes = paths.firstNotNullOfOrNull { entry ->
             when {
@@ -37,11 +39,13 @@ class AptSemanticResolver(private val context: ICompileContext, private val modu
                 else -> null
             }
         } ?: ClassLoader.getSystemResourceAsStream(path)?.use { it.readBytes() }
-        bytes?.let { ClassNode().also { node -> ClassReader(it).accept(node, ClassReader.SKIP_CODE or ClassReader.SKIP_FRAMES) } }
+        return bytes?.let { ClassNode().also { node -> ClassReader(it).accept(node, ClassReader.SKIP_CODE or ClassReader.SKIP_FRAMES) } }
+            .also { classes[name] = it }
     }
 
     /** Finds a declaration through round snapshots, named paths or SourceFile, without scanning source roots. */
-    fun source(name: String): File? = sources.getOrPut(name) {
+    fun source(name: String): File? {
+        if (sources.containsKey(name)) return sources[name]
         val top = name.substringBefore('$')
         val roots = (listOf(module) + module.moduleDependencies.mapNotNull { context.modules[it.moduleName] }).flatMap { it.sourceDirs }
         val candidates = roots.flatMap { root ->
@@ -50,13 +54,15 @@ class AptSemanticResolver(private val context: ICompileContext, private val modu
             }
         } + analysis.files.map { it.file }
         val simple = top.substringAfterLast('.')
-        candidates.distinct().firstOrNull { file ->
+        val source = candidates.distinct().firstOrNull { file ->
             file.isFile && file.extension in listOf("java", "kt") &&
                 (file.nameWithoutExtension == simple || analysis.text(file).contains(simple)) && matchesSource(file, name)
         } ?: classInfo(name)?.sourceFile?.let { filename ->
             roots.flatMap { root -> listOf(File(root, "${top.substringBeforeLast('.', "").replace('.', '/')}/$filename"), File(root, filename)) }
                 .firstOrNull { it.isFile && matchesSource(it, name) }
         }
+        sources[name] = source
+        return source
     }
 
     private fun matchesSource(file: File, name: String): Boolean {

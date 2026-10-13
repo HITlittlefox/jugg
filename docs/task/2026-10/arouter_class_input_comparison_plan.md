@@ -317,3 +317,27 @@ JUGG_AROUTER_FIXTURE=/Users/wormchen/IdeaProjects/demo/aigc-bot-client/arouter-f
 - 验证：上述行为 owner 的定向回归及真实编译 Flow、IDE 核心文件诊断、idea:compileKotlin、Wiki 镜像/链接检查和 production build；最终 73 条用例全部通过（ARouter owner 62、JuggApt owner 11），0 失败、0 跳过；idea:compileKotlin 和所有选中依赖构建任务通过，无任务排除。Wiki production build、镜像/链接/HTML 检查和 git diff --check 通过，IDE 核心文件诊断无错误。
 - 文档：同步编译专题、代码地图及受影响的中英文 Wiki；记录父类比较时序和未执行的设备验收。
 - 提交：仅提交本次实现、回归与文档，commit hash 和标题见本次对话结果。
+
+
+### 9.3 JOOX 准备阶段空结果缓存优化
+
+现场：JOOX `page-main` 的 2026-10-13 15:48 日志中，`Compile files:` 到 `ARouter processor started` 相隔 4.260 秒。独立重放定位到重复语义查询；`AptSemanticResolver` 的 class/source 缓存通过 `getOrPut` 保存 `null` 后仍会重新求值，导致未命中候选反复遍历依赖源码路径、打开 classpath JAR。
+
+本次仅修改这两个查询方法：先判断缓存是否包含 key，未命中时执行原查找并保存结果，包括 `null`。缓存保持每轮 resolver 的生命周期，下一轮重新查询；不缩减完整源码输入，不修改处理器选择、生成、发布及失败边界。
+
+验证采用现有回归 owner，不新增绑定私有缓存结构或不稳定耗时阈值的单元测试。改动前后均执行以下定向用例，18 个全部通过，无跳过；其中混合聚合和继承 Autowired 场景覆盖真实 SourceCompiler → Kotlin/Java → D8 Flow：
+
+- `ARouterJuggAptProcessorTest`：`firstRoundMethodBodyChangeDoesNotRunApt`、`methodBodyChangesReuseSourcesButReferencedConstantsRegenerate`、`changingOnlyAutowiredTypeImportMustRegenerateCast`、`firstBaselineRecoversMultipleAndNestedSourceIdentities`、`aggregateFailureDoesNotPublishPartialIndexesAndTheNextRoundCanRecover`、`mixedAggregationCompilesTypealiasesAndUncompiledKotlinDependenciesToDex`、`inheritedAutowiredTypeChangeFlowCompilesUpdatedParameterIndexes`。
+- `JuggAptCompilerTest`：现有 11 个用例。
+- JBR 17、SDK platform 30 下，定向 `:main:test --tests ...` 和 `:idea:compileKotlin` 成功；Android Studio 文件诊断无错误。
+
+性能复验使用本地 OpenJDK 21、工程现有 classpath 的 198 个 JAR / 94 个目录及 9 个含 ARouter 引用的源码。先初始化 Kotlin PSI，再在同一独立 JVM 中交替运行修复前保存的 resolver 字节码和实际修复后的编译产物；每轮新建 analysis/resolver，执行 ReserveAdActivity 的业务 class 关联、父类变化判定、当前/旧语义比较和全部 9 个源码的聚合语义校验。排除首组预热，双方各取 5 个样本：
+
+| 准备逻辑 | 中位数 | 范围 |
+| --- | --- | --- |
+| 修复前 | 3.362 秒 | 3.244～3.753 秒 |
+| 修复后 | 0.878 秒 | 0.812～1.014 秒 |
+
+中位耗时减少约 74%；全部 12 轮的语义投影和父类变化判定一致。该测量不包含 KAPT、Kotlin PSI 首次初始化、完整源码枚举和 processor 兼容性选择，不等同于 IDE 的完整 4.260 秒间隔。真实工程的完整编译正确性和该日志间隔由用户在更新插件后复测。
+
+临时复验材料：`/var/folders/h6/b2_hdcs12gj55jj4k97ddp580000gn/T/jugg-arouter-null-cache-lmen970b/` 下的 `AptSemanticResolver.class`（修复前）、`comparison.jsh`（完整重放输入及逻辑）和 `comparison.json`（逐轮结果）。知识库同步缓存范围；Wiki 的支持边界和用户流程不受影响，未修改 Wiki。
