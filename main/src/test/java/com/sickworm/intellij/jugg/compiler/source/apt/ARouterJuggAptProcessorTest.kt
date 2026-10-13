@@ -355,6 +355,84 @@ class ARouterJuggAptProcessorTest {
     }
 
     @Test
+    fun mixedAggregationCompilesTypealiasesAndUncompiledKotlinDependenciesToDex() {
+        val executions = installCountingProcessor()
+        val java = source
+        val toolchain = System.getProperty("arouter.test.kotlin").split(File.pathSeparator).map(::File)
+        module = module.copy(kotlinPlugins = toolchain, kotlinJvmTarget = "1.8")
+        libraryJars += toolchain.filter { it.name.startsWith("kotlin-stdlib-") || it.name.startsWith("annotations-") }
+        val root = module.sourceDirs.single()
+        val dependency = File(root, "demo/NewBase.kt").apply {
+            writeText("package demo\nopen class NewBase : android.app.Activity()\nclass NewPayload")
+        }
+        val alias = File(root, "demo/alias/PayloadAlias.kt").apply {
+            parentFile.mkdirs()
+            writeText("package demo.alias\ntypealias PayloadAlias = demo.NewPayload")
+        }
+        val kotlin = File(root, "demo/KotlinScreen.kt").apply {
+            writeText("""
+                package demo
+                import demo.alias.PayloadAlias
+                @com.alibaba.android.arouter.facade.annotation.Route(path = "/demo/kotlin")
+                class KotlinScreen : NewBase() {
+                    fun payload(): PayloadAlias = PayloadAlias()
+                }
+            """.trimIndent())
+        }
+        source = CompileFile(CompileFile.Type.Kotlin, kotlin, root, module)
+        updateModule()
+        configureSourceCompilation()
+        assertFalse(File(module.buildPathInfo.kotlinClassPath, "demo/NewBase.class").exists())
+        val inputs = listOf(source, java.copy(module = module)) + listOf(dependency, alias).map {
+            CompileFile(CompileFile.Type.Kotlin, it, root, module)
+        }
+        val flow = SourceCompiler(context, object : Disposable { override fun dispose() = Unit })
+        val result = flow.compile(CompileTask(inputs, File(temporary.root, "mixed-dex"), CompileStatusHolder.DEFAULT))
+        assertTrue(result.isAllSuccess, result.failedFiles.toString())
+        assertTrue(result.outputs.any { it.type == com.sickworm.intellij.jugg.compiler.CompileOutput.Type.Dex })
+        assertEquals(setOf("/demo/first", "/demo/kotlin"), resolvedRoutes())
+        assertEquals(1, executions.readLines().size)
+        assertTrue(File(module.buildPathInfo.kotlinClassPath, "demo/NewPayload.class").isFile)
+    }
+
+    @Test
+    fun mixedAggregationIgnoresOtherProcessorsAndPreviousGeneratedSourceRoots() {
+        compileBusinessSources()
+        val toolchain = System.getProperty("arouter.test.kotlin").split(File.pathSeparator).map(::File)
+        val rejected = rejectingProcessor("demo.UnrelatedProcessor")
+        processorJars += rejected
+        module = module.copy(kotlinPlugins = toolchain, kotlinJvmTarget = "1.8",
+            annotationProcessorDependencies = processorJars.map { LibraryDependency(it.name, it) })
+        libraryJars += toolchain.filter { it.name.startsWith("kotlin-stdlib-") || it.name.startsWith("annotations-") }
+        val root = module.sourceDirs.single()
+        File(root, "demo/KotlinScreen.kt").writeText("""
+            package demo
+            @com.alibaba.android.arouter.facade.annotation.Route(path = "/demo/kotlin")
+            class KotlinScreen : android.app.Activity()
+        """.trimIndent())
+        val previous = temporary.newFolder("previous-generated")
+        File(previous, "Previous.java").writeText("class Previous { MissingType dependency; }")
+        whenever(context.getGeneratedSourcePaths(any())).thenReturn(listOf(previous))
+        updateModule()
+        source = writeSource("@Route(path = \"/demo/latest\")")
+        val generated = generate()
+        assertTrue(generated.any { it.readText().contains("/demo/latest") && it.readText().contains("/demo/kotlin") })
+    }
+
+    @Test
+    fun mixedProcessorFailurePreservesPublishedSourcesAndFailsClosed() {
+        val published = generate().associate { it to it.readBytes().toList() }
+        val toolchain = System.getProperty("arouter.test.kotlin").split(File.pathSeparator).map(::File)
+        module = module.copy(kotlinPlugins = toolchain, kotlinJvmTarget = "1.8")
+        libraryJars += toolchain.filter { it.name.startsWith("kotlin-stdlib-") || it.name.startsWith("annotations-") }
+        File(module.sourceDirs.single(), "demo/Ordinary.kt").writeText("package demo\nclass Ordinary")
+        replaceCompiler(compilerJar(), rejectingProcessor("com.alibaba.android.arouter.compiler.processor.RejectedProcessor"))
+        source = writeSource("@Route(path = \"/demo/latest\")")
+        assertFailsWith<JuggAptFatalException> { generate() }
+        assertEquals(published, published.keys.associateWith { it.readBytes().toList() })
+    }
+
+    @Test
     fun kotlinAliasAndAutowiredGenerateFromKaptStubs() {
         val toolchain = System.getProperty("arouter.test.kotlin").split(File.pathSeparator).map(::File)
         module = module.copy(kotlinPlugins = toolchain, kotlinJvmTarget = "1.8")
@@ -741,18 +819,7 @@ class ARouterJuggAptProcessorTest {
 
     @Test
     fun customFixtureAcceptsAppAndEightArgumentRouteMetaBuild() {
-        val fixture = System.getenv("JUGG_AROUTER_FIXTURE")?.let(::File)
-        org.junit.Assume.assumeTrue("Set JUGG_AROUTER_FIXTURE to the custom project's processor artifacts", fixture?.isDirectory == true)
-        val root = checkNotNull(fixture)
-        val api = File(temporary.root, "fixture-api.jar")
-        JarFile(File(root, "arouter-api-release.aar")).use { jar ->
-            api.writeBytes(jar.getInputStream(jar.getJarEntry("classes.jar")).use { it.readBytes() })
-        }
-        processorJars = listOf(File(root, "arouter-compiler.jar"), File(root, "arouter-annotation.jar")) +
-            File(root, "processor-deps").listFiles()!!.filter { it.extension == "jar" }
-        libraryJars = libraryJars.filterNot { it.name.startsWith("arouter-api") } + api
-        module = module.copy(annotationProcessorDependencies = processorJars.map { LibraryDependency(it.name, it) })
-        updateModule()
+        useCustomFixture()
         source = writeSource("@Route(path = \"/demo/first\", app = \"demo\")")
         establishGradleBaseline()
         assertTrue(generate().isEmpty())
@@ -770,6 +837,41 @@ class ARouterJuggAptProcessorTest {
         assertTrue(result.isAllSuccess, result.failedFiles.toString())
         assertTrue(result.outputs.any { it.file.name.contains("ARouter") })
         assertEquals(setOf("/demo/next"), resolvedRoutes("com.tencent.yb.routes.ARouter\$\$Group\$\$demo"))
+    }
+
+    @Test
+    fun customFixtureMixedAggregationSupportsAppAttributesAndTypealiases() {
+        useCustomFixture()
+        val toolchain = System.getProperty("arouter.test.kotlin").split(File.pathSeparator).map(::File)
+        module = module.copy(kotlinPlugins = toolchain, kotlinJvmTarget = "1.8")
+        libraryJars += toolchain.filter { it.name.startsWith("kotlin-stdlib-") || it.name.startsWith("annotations-") }
+        updateModule()
+        source = writeSource("@Route(path = \"/demo/first\", app = \"other\")")
+        val root = module.sourceDirs.single()
+        val payload = File(root, "demo/Payload.kt").apply { writeText("package demo\nclass Payload") }
+        val alias = File(root, "demo/alias/PayloadAlias.kt").apply {
+            parentFile.mkdirs()
+            writeText("package demo.alias\ntypealias PayloadAlias = demo.Payload")
+        }
+        val kotlin = File(root, "demo/KotlinScreen.kt").apply {
+            writeText("""
+                package demo
+                import demo.alias.PayloadAlias
+                @com.alibaba.android.arouter.facade.annotation.Route(path = "/demo/kotlin", app = "other")
+                class KotlinScreen : android.app.Activity() {
+                    fun payload(): PayloadAlias = PayloadAlias()
+                }
+            """.trimIndent())
+        }
+        configureSourceCompilation()
+        val inputs = listOf(source) + listOf(payload, alias, kotlin).map { CompileFile(CompileFile.Type.Kotlin, it, root, module) }
+        val flow = SourceCompiler(context, object : Disposable { override fun dispose() = Unit })
+        val result = flow.compile(CompileTask(inputs, File(temporary.root, "custom-mixed-dex"), CompileStatusHolder.DEFAULT))
+        assertTrue(result.isAllSuccess, result.failedFiles.toString())
+        assertTrue(result.outputs.any { it.type == com.sickworm.intellij.jugg.compiler.CompileOutput.Type.Dex })
+        assertEquals(setOf("/demo/first", "/demo/kotlin"), resolvedRoutes("com.tencent.yb.routes.ARouter\$\$Group\$\$demo"))
+        val group = File(context.incrementalDataDir, "arouter/routes/debug/sources/com/tencent/yb/routes/ARouter\$\$Group\$\$demo.java")
+        assertTrue(group.readText().contains("\"other\""))
     }
 
     @Test
@@ -1012,6 +1114,54 @@ class ARouterJuggAptProcessorTest {
     }
 
     /** Advances business classes with the normal Java compiler, leaving generated indexes untouched. */
+    private fun useCustomFixture() {
+        val fixture = System.getenv("JUGG_AROUTER_FIXTURE")?.let(::File)
+        org.junit.Assume.assumeTrue("Set JUGG_AROUTER_FIXTURE to the custom project's processor artifacts", fixture?.isDirectory == true)
+        val root = checkNotNull(fixture)
+        val api = File(temporary.root, "fixture-api.jar")
+        JarFile(File(root, "arouter-api-release.aar")).use { jar ->
+            api.writeBytes(jar.getInputStream(jar.getJarEntry("classes.jar")).use { it.readBytes() })
+        }
+        processorJars = listOf(File(root, "arouter-compiler.jar"), File(root, "arouter-annotation.jar")) +
+            File(root, "processor-deps").listFiles()!!.filter { it.extension == "jar" }
+        libraryJars = libraryJars.filterNot { it.name.startsWith("arouter-api") } + api
+        module = module.copy(annotationProcessorDependencies = processorJars.map { LibraryDependency(it.name, it) })
+        updateModule()
+    }
+
+    /** Creates a real processor whose execution must fail, to check selection and fail-closed behavior. */
+    private fun rejectingProcessor(name: String): File {
+        val root = temporary.newFolder()
+        val packageName = name.substringBeforeLast('.')
+        val simpleName = name.substringAfterLast('.')
+        val java = File(root, "$simpleName.java").apply {
+            writeText("""
+                package $packageName;
+                @javax.annotation.processing.SupportedAnnotationTypes("*")
+                public class $simpleName extends javax.annotation.processing.AbstractProcessor {
+                    @Override public synchronized void init(javax.annotation.processing.ProcessingEnvironment environment) {
+                        throw new IllegalStateException("Rejected processor executed");
+                    }
+                    @Override public boolean process(java.util.Set<? extends javax.lang.model.element.TypeElement> annotations,
+                            javax.annotation.processing.RoundEnvironment round) { return false; }
+                }
+            """.trimIndent())
+        }
+        assertEquals(0, javax.tools.ToolProvider.getSystemJavaCompiler().run(null, null, null,
+            "--release", "8", "-proc:none", "-d", root.path, java.path))
+        return File(root, "rejected-processor.jar").apply {
+            JarOutputStream(outputStream()).use { output ->
+                val path = "${name.replace('.', '/')}.class"
+                output.putNextEntry(JarEntry(path))
+                output.write(File(root, path).readBytes())
+                output.closeEntry()
+                output.putNextEntry(JarEntry("META-INF/services/javax.annotation.processing.Processor"))
+                output.write(name.toByteArray())
+                output.closeEntry()
+            }
+        }
+    }
+
     private fun compileBusinessSources() {
         val sources = module.sourceDirs.flatMap { it.walkTopDown().filter { file -> file.isFile && file.extension == "java" }.toList() }
         val paths = context.getModuleDependencies(module, CompileTask(listOf(source), temporary.root, CompileStatusHolder.DEFAULT))

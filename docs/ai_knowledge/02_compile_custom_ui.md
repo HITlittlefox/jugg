@@ -96,7 +96,7 @@ Project Info 的 AAR 类路径和 processor JAR 可能分别处于 Jetifier 之�
 
 Fragment 要求与所选目标不同才转换 processor 的独立副本，并同时替换 KAPT、javac 的 processor path 和辅助 classpath；不覆盖项目文件，不转换其他 runtime/annotation 依赖。转换后校验 Fragment 引用及 SPI，无法可靠识别或转换时生成失败。
 
-`AnnotationProcessorRunner.generate()` 通过 KAPT 生成 Kotlin stubs，再交 javac 执行选定的项目处理器。产物先留在独立临时目录，完整生成成功后由 `GeneratedSourceCheckpoint.publish()` 发布，再交既有 Kotlin/Java 编译链；普通语言编译保持 APT/KAPT 关闭，DataBinding 的既有输出语义不变。
+`AnnotationProcessorRunner.generate()` 对混合 Java/Kotlin 模块使用原生 KAPT，对纯 Java 模块使用 javac，均只执行选定的项目处理器。完整聚合输入进入同一次生成，产物先留在临时目录，成功后由 `GeneratedSourceCheckpoint.publish()` 发布，再交既有 Kotlin/Java 编译链；普通语言编译保持 APT/KAPT 关闭，DataBinding 的既有输出语义不变。
 
 生成源码目录只在完整生成成功后发布；生成类收缩时保留旧目录并要求完整 Gradle 构建，不能将部分索引交给后续源码编译。完整构建清空增量目录后，下一轮重新使用 Gradle 生成物基线。
 

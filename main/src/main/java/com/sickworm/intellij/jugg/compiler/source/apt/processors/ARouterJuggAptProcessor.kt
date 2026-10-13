@@ -67,6 +67,7 @@ class ARouterJuggAptProcessor : BaseJuggAptProcessor() {
             context.logger.debug("ARouter processor skipped for ${module.name}: current-round inputs unchanged")
             return null
         }
+        // Keep unannotated sources too, so aggregate KAPT can resolve new Kotlin dependencies.
         val sources = module.sourceDirs.filter { it.exists() }.flatMap { root ->
             sourceFiles(root).filter { it.extension in listOf("java", "kt") &&
                 !it.canonicalFile.toPath().startsWith(checkpoint.sourceRoot.canonicalFile.toPath()) }

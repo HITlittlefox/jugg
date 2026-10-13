@@ -31,6 +31,8 @@ Jugg 支持通过自定义编译器 SPI 扩展内置增量编译链。自定义�
 
 ARouter 的 `@Route`、`@Autowired`、`@Interceptor` 已有内置增量处理，无需下发适配器。项目需保留自己的 annotation processor 依赖及 `AROUTER_MODULE_NAME` 或 `moduleName` 参数。Jugg 比较本轮源码与现有业务 class 中的相关注解值、字段类型、路由身份和必要继承关系，确认变化后才收集完整模块输入、运行项目处理器；生成 Java 继续参与本轮编译。同值常量、显式默认值、属性顺序、等价 import/alias、普通方法体、注释和格式变化不会重新生成。已消费索引不会反复加入普通轮次。
 
+含 Kotlin 的模块在生成时纳入完整 Java/Kotlin 业务源码，因此新 Kotlin 类型即使没有 ARouter 注解、尚未生成 class，也能参与本轮类型解析。混合模块通过 KAPT 完成生成，支持 Kotlin typealias 导入；仅运行选定的 ARouter processor。纯 Java 模块使用 Java 注解处理路径。生成成功后，产物才进入后续源码编译。
+
 只修改路由常量时，已有常量引用分析先把使用方送入跟编。即使使用方文本未变化，Jugg 仍读取当前常量值，确实影响注解结果才重新生成。ARouter 与 Kuikly 在同一轮共用源码读取和语法分析结果。
 
 业务 class 由正常 Java/Kotlin 编译维护。Jugg 按声明身份及源码归属关联同文件多类、嵌套类和移动后的声明；新增声明按空旧输入比较。全部实际注解属性及默认值都参与比较，包括 `name`、`desc` 和定制的 `app`；即使不同输入最终生成相同代码，也允许重新执行处理器。普通 ARouter runtime import 和已有部署 overlay 不会单独触发生成或告警。

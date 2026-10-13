@@ -108,6 +108,7 @@ class KotlinCompilerInvoker {
         val kaptOptions: Map<String, String> = emptyMap(),
         val kaptDependencies: List<File> = emptyList(),
         val kaptMode: String = "stubsAndApt",
+        val kaptProcessors: List<String> = emptyList(),
         val javaSourceDirs: List<File>? = null,
         // Force using embedded compiler by bypassing project compiler classpath.
         val forceUseEmbeddedKotlinCompiler: Boolean = false,
@@ -294,6 +295,10 @@ class KotlinCompilerInvoker {
                 // stubs, apt, stubsAndApt, compile
                 "-P", "plugin:org.jetbrains.kotlin.kapt3:aptMode=${options.kaptMode}",
             ))
+            // Kotlin CLI splits comma-separated -P values before KAPT receives them.
+            options.kaptProcessors.forEach {
+                kaptArgs.addAll(listOf("-P", "plugin:org.jetbrains.kotlin.kapt3:processors=$it"))
+            }
 
             options.kaptDependencies.forEach {
                 kaptArgs.addAll(listOf("-P", "plugin:org.jetbrains.kotlin.kapt3:apclasspath=${it.path}"))

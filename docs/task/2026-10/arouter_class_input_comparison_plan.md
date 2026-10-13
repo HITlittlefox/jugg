@@ -115,6 +115,10 @@ Java 普通编译会把输出复制到 javaClassPath；Kotlin 普通编译使用
 
 后续沿用 Kotlin → Java → D8 / minify → staging → 部署和既有索引重启策略。无变化不重新返回已消费的全部生成源码；已有待完成源码继续进入正常编译。重复 APT 时重新登记最新产物，不能因已有 pending 而跳过新的相关输入，也不能遗漏新生成源码。
 
+### 4.3 混合源码生成边界修复
+
+2026-10-13 的真实工程验证发现：完整 Kotlin 聚合的 stub 不能交给普通 javac，否则 Kotlin typealias 的 import 会被当成缺失 Java class。含 Kotlin 的模块改用 KAPT `stubsAndApt`，完整业务 Java/Kotlin 文件显式传入，并且只指定实际 ARouter processor；纯 Java 模块沿用 `javac -proc:only`。不恢复旧 custom compiler 的注解文件筛选，以保留未编译新 Kotlin 依赖的解析能力。生成目录发布、failClosed 和 pending 契约保持不变，详见[原生 KAPT 修复方案](./arouter_native_kapt_generation_fix.md)。
+
 ## 5. 失败、重试与接受的边界
 
 | 场景 | 产物状态 | 下一轮行为 |

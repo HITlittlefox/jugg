@@ -6,15 +6,16 @@ import com.sickworm.intellij.jugg.compiler.source.kotlin.KotlinCompilerInvoker
 import com.sickworm.intellij.jugg.project.data.ModuleInfo
 import java.io.File
 
-/** Runs mixed-language aggregation through the existing KAPT and javac invokers. */
+/** Uses native KAPT for mixed-language aggregation and javac for Java-only modules. */
 class AnnotationProcessorRunner {
     fun generate(context: ICompileContext, module: ModuleInfo, sources: List<File>,
         processorPath: List<File>, processorNames: List<String>, options: Map<String, String>, work: File): File {
         work.deleteRecursively()
         work.mkdirs()
-        val kotlin = sources.filter { it.extension == "kt" }
-        val stubs = if (kotlin.isEmpty()) emptyList() else generateStubs(context, module, kotlin, processorPath, work)
-        val input = (sources.filter { it.extension == "java" } + stubs).distinctBy { it.canonicalPath }
+        val input = sources.distinctBy { it.canonicalPath }
+        if (input.any { it.extension == "kt" }) {
+            return generateWithKapt(context, module, input, processorPath, processorNames, options, work)
+        }
         val generated = File(work, "sources").apply { mkdirs() }
         if (input.isEmpty()) return generated
         val files = input.map { CompileFile(CompileFile.Type.Java, it, it.parentFile, module) }
@@ -29,38 +30,42 @@ class AnnotationProcessorRunner {
         return generated
     }
 
-    /** Builds Java stubs for annotated Kotlin inputs with the module's compiler plugins. */
-    private fun generateStubs(
+    /** Keeps Kotlin stub semantics inside KAPT, including imports that have no Java class. */
+    private fun generateWithKapt(
         context: ICompileContext,
         module: ModuleInfo,
         sources: List<File>,
         processorPath: List<File>,
+        processorNames: List<String>,
+        options: Map<String, String>,
         work: File,
-    ): List<File> {
-        val stubContext = context.subContext("apt_stubs")
+    ): File {
+        val kaptContext = context.subContext("arouter_kapt")
         val files = sources.map { source ->
             val root = module.sourceDirs.filter { source.toPath().startsWith(it.toPath()) }
                 .maxByOrNull { it.path.length } ?: module.moduleRootDir
-            CompileFile(CompileFile.Type.Kotlin, source, root, module)
+            val type = if (source.extension == "kt") CompileFile.Type.Kotlin else CompileFile.Type.Java
+            CompileFile(type, source, root, module)
         }
         val task = CompileTask(files, File(work, "kotlin_classes"), CompileStatusHolder.DEFAULT)
         val result = KotlinCompilerInvoker().compile(
-            stubContext, module, task, context.logger,
+            kaptContext, module, task, context.logger,
             KotlinCompilerInvoker.Options(
                 isEnableKapt = true,
-                kaptMode = "stubs",
+                kaptMode = "stubsAndApt",
                 kaptDependencies = processorPath,
+                kaptProcessors = processorNames,
+                kaptOptions = options,
+                // Exact Java inputs are already in the task; exclude previous generated source roots.
+                javaSourceDirs = emptyList(),
                 isNeedCompileCompose = module.isUseCompose == true,
                 kotlinPlugins = module.kotlinPlugins.orEmpty(),
                 kotlinExtensions = module.kotlinExtensions.orEmpty(),
                 kotlinPluginOptions = module.kotlinPluginOptions,
             ),
         )
-        check(result.isAllSuccess) { "KAPT stub generation failed for ${module.name}: ${result.failedFiles}" }
-        val stubDir = File(stubContext.tempCompileDir, "kapt/stubs")
-        val stubs = stubDir.walkTopDown().filter { it.isFile && it.extension == "java" }.toList()
-        check(stubs.isNotEmpty()) { "KAPT produced no Java stubs for annotated Kotlin sources in ${module.name}" }
-        return stubs
+        check(result.isAllSuccess) { "KAPT annotation generation failed for ${module.name}; see compiler diagnostics above" }
+        return File(kaptContext.tempCompileDir, "kapt/sources")
     }
 
 }
