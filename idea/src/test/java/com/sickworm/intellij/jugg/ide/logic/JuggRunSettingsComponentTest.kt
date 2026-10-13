@@ -141,7 +141,7 @@ class JuggRunSettingsComponentTest {
         assertEquals(listOf(
             "Build" to listOf("Fallback to Gradle", "Clear Jugg Build", "Exec remote CMD"),
             "Device" to listOf("Restart App", "Clear app data"),
-            "Jugg Plugin" to listOf("Report Issue", "Check updates", "Install CLI & Skill"),
+            "Jugg Plugin" to listOf("Ask AI", "Report Issue", "Check updates", "Install CLI & Skill"),
         ), quickActionGroups)
         assertEquals(listOf(
             "settings.group.runBehavior",

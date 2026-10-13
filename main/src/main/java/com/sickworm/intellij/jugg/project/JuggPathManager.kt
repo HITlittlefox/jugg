@@ -22,6 +22,7 @@ class JuggPathManager(
     val stagingDir = File(compileRootDir, "staging")
     val databaseDir = File(juggRootDir, "database")
     val logDir = File(globalJuggRootDir, "log/${projectDir.name}_${projectPathHash(projectDir)}")
+    val investigationDir = File(globalJuggRootDir, "investigations/${projectDir.name}_${projectPathHash(projectDir)}")
     val legacyLogDir = File(juggRootDir, "log")
     val mcpFetchDir = File(juggRootDir, "mcp_fetch")
 

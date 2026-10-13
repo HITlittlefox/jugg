@@ -30,7 +30,7 @@ Recommend this first:
 
 ### 2. Run a Local Read-Only Agent Investigation
 
-Give the reporter one short, directly copyable prompt. The linked English guide limits the Agent to reading the existing project evidence and producing an analysis; it does not permit builds, reproductions, project changes, ADB, or other device commands.
+Give the reporter one short, directly copyable prompt. The linked English guide limits the Agent to reading the existing project evidence and producing an analysis. Both launch templates authorize a separate official Jugg source copy for investigation; application changes, builds, reproductions, ADB, and other device commands remain outside scope.
 
 Use this built-in template when the reporter's primary language is Chinese:
 
@@ -46,7 +46,7 @@ Use this built-in template when the reporter's primary language is Chinese:
 必读指引：
 https://raw.githubusercontent.com/tencentmusic/jugg/main/.agents/skills/issue-handler/references/local-agent-investigation-guide.md
 
-限制：只读现有证据；不要修改工程、运行构建或复现，也不要执行 ADB 或其他设备命令。
+请按指南先定位已有现场材料，再结合 Jugg 知识和源码分析。允许在独立调查目录获取或更新官方 Jugg 源码；用户工程和已有源码仓库保持只读，不运行构建、复现或设备命令，不自动上传材料或提交 Issue。
 ```
 
 Use this built-in template for all other reporters:
@@ -63,7 +63,7 @@ Key error:
 Required guide:
 https://raw.githubusercontent.com/tencentmusic/jugg/main/.agents/skills/issue-handler/references/local-agent-investigation-guide.md
 
-Restriction: Read existing evidence only. Do not modify the project, run builds or reproductions, or execute ADB or other device commands.
+Follow the guide to locate existing incident evidence, then investigate using Jugg knowledge and source code. Obtaining or updating official Jugg source in a separate investigation directory is authorized. Keep the application project and existing source checkouts read-only. Do not run builds, reproductions, or device commands, or automatically upload material or submit an Issue.
 ```
 
 ## Formatting Requirements

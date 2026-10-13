@@ -23,6 +23,7 @@
 | 平台桥接 | `main/src/main/java/com/sickworm/intellij/jugg/platform/IPlatformApi.kt`、`PlatformApi.kt` | core 层调用 UI、设备、Gradle、MCP host 能力的抽象边界 |
 | 远端服务 | `main/src/main/java/com/sickworm/intellij/jugg/server/JuggServer.kt`、`PublicUpdateChecker.kt`、`JuggServerChooser.kt`、`JuggEventLocalStore.kt`、`JuggRemoteCompileApplier.kt` | 上报、版本检测、server failover、全局本地事件记录与远端编译 apply；缺少内置配置时仅明确设置的自定义服务器可启用后台，无自建后台时自动通过 PublicUpdateChecker 并发向 JetBrains Marketplace 与 GitHub 查询公网更新 |
 | 问题诊断 | `main/src/main/java/com/sickworm/intellij/jugg/diagnostics/IssueReportBundleBuilder.kt`、`IssueReportUploader.kt` | 白名单诊断包、脱敏、manifest 校验与单一 HTTPS endpoint 上传 |
+| 本地 Agent 调查 | `main/src/main/java/com/sickworm/intellij/jugg/diagnostics/InvestigationSnapshotBuilder.kt` | 独立证据副本、来源与 SHA-256 清单、部分采集失败记录和 ASK AI prompt；不自动上传 |
 | 配置模型 | `main/src/main/java/com/sickworm/intellij/jugg/ide/bean/JuggSettings.kt`、`JuggGradleCompileOptions.kt` | 持久化设置、运行参数、Gradle task 派生与远端编译参数 |
 
 ---
@@ -56,6 +57,13 @@ JuggManager 初始化
 ---
 
 ## 4. 隐形约束
+
+- IDE 侧 `AskAiInvestigation` 负责问题输入、环境/logcat/产物采集与失败入口；`JuggManager` 只委托，`InvestigationSnapshotBuilder` 保持独立副本和 prompt 职责。复制日志前 `JuggLogger.flushProjectLog()` 等待异步 writer 排空，完整异常栈读取保存的真实文件；`RunLogCollector` 仅保留原有消息摘要。等待不持有全局生命周期锁或部署 monitor；中断/失败只记录 `logs-flush`，其余证据继续保留。
+- ASK AI 现场保存在 `JuggPathManager.investigationDir`，按项目路径 hash 隔离于全局 Jugg root，不进入 `build/jugg` 或远程编译同步范围；启动后独立清理超过 30 天的副本，复制文件保留采集时 mtime，源 mtime 仅写入 manifest。单个来源文件无法复制时记录失败，清单或 prompt 无法写入则明确失败。本地副本保留原始上下文，不复用用于上传的脱敏报告包；用户自行决定是否向 Issue 提供内容。
+- Source 的物理保存名包含单次采集序号，APK 归属和 deployPath 独立记录，避免不同 APK 的同名资源/Dex 相互覆盖。复制前后检查源大小和 mtime，检测到采集期间变化则舍弃该文件并记录原因。本地部署记录不是设备加载状态证明。
+- Ask AI prompt 从 `main/src/main/resources/diagnostics/ask-ai-zh.md` / `ask-ai-en.md` 读取完整 Markdown 模板。生成时读取 JVM 系统默认 `Locale`，`language == zh` 使用中文（覆盖简体、繁体），其他语言使用英文，Agent 输出和 Issue Form 同步选择；弹窗说明始终使用英文。模板只交接问题描述、现场路径、时间、语言和源码获取授权；环境与采集失败项从 manifest 读取，不在 prompt 重复展开。模板占位符单次替换，原始描述和路径不翻译、不再次展开。
+- 共用的 `.agents/skills/issue-handler/references/local-agent-investigation-guide.md` 承载前置知识、现场分析、简洁回复和按需 Issue 交接，合入 main 后供后续调查读取；实现与支持范围仍按现场版本核对。所有入口先读取 AGENTS、00/99/98，再进入 09 及相关专题，不按错误分类提前跳过 Jugg 上下文。ASK AI 直接读取 manifest 对应副本；非 ASK AI 或关键证据缺失时按需读取同目录 `local-agent-evidence-collection.md`，定位已有材料，不重复采集或执行构建/设备操作。
+- Guide 的 Issue 交接要求 Agent 对照当前 Bug Issue Form，生成 `issues/new` 预填写链接和按字段可复制全文；中文/英文选择对应 YAML，URL 使用 `template`、`title`、`description`、`diagnostic_material` 等当前字段 ID 并逐值编码，不能只传 `body`。URL 仅包含可公开摘要，过长或预填写失效时回退短模板链接和全文。Report ID 不编造，原始现场不冒充脱敏 Diagnostics Bundle，本地路径不代表附件；下拉框、重复 Issue 搜索确认和最终提交由用户核对完成。
 
 - `JuggLogger.getInstance(...)` 要求对应 project key 已注册；未注册会 fail fast，排查“拿不到 logger”先看初始化时机，而不是补空 logger。
 - `FileLogger` 的 `compile_latest.log` 和 `build/jugg/log` 都是 best-effort 快捷入口；初始化及 `recreateIfDeleted()` 会尝试维护兼容链接。旧 `build/jugg/log` 真实目录会先迁入全局目录，同名文件增加 `.legacy-N` 后缀，迁移或链接失败时恢复旧目录；普通文件不覆盖。真实滚动文件仍是 `compile_yyyy-MM-dd_HH-mm-ss.%g.log`，日志丢失排查要同时看当前主文件和 `compile_latest-1.log`。

@@ -238,6 +238,7 @@ class JuggControlPanel(
             actionLink("Restart App", controller::restartApp),
             actionLink("Clear app data", controller::cleanAndReinstall)))
         add(actionGroup("Jugg Plugin",
+            actionLink("Ask AI", controller::askAi),
             actionLink("Report Issue", controller::reportIssue),
             actionLink("Check updates", controller::checkUpdates),
             actionLink("Install CLI & Skill", controller::installSkills)))

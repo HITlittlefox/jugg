@@ -6,6 +6,8 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.sickworm.intellij.jugg.JuggManager
 import com.sickworm.intellij.jugg.compiler.CompileFile
+import com.sickworm.intellij.jugg.compiler.ui.RunResult
+import com.sickworm.intellij.jugg.ide.bean.JuggGradleCompileOptions
 import com.sickworm.intellij.jugg.deploy.CompatDeployHelper
 import com.sickworm.intellij.jugg.deploy.DeployFileManager
 import com.sickworm.intellij.jugg.deploy.IDeployHistoryManager
@@ -244,6 +246,8 @@ open class JuggControlPanelController(
     open fun resetJuggCache() = manager.resetJuggCache()
 
     open fun reportIssue() = manager.reportIssue()
+
+    open fun askAi() = manager.askAi()
 
     open fun installSkills() = manager.installSkills()
 

@@ -45,6 +45,7 @@ import com.sickworm.intellij.jugg.logger.JuggLogger
 import com.sickworm.intellij.jugg.logger.TimeLogger
 import com.sickworm.intellij.jugg.logger.getInstance
 import com.sickworm.intellij.jugg.ai.mcp.*
+import com.sickworm.intellij.jugg.diagnostics.AskAiInvestigation
 import com.sickworm.intellij.jugg.diagnostics.IssueReportBundleBuilder
 import com.sickworm.intellij.jugg.diagnostics.IssueReportBundle
 import com.sickworm.intellij.jugg.diagnostics.IssueReportUploader
@@ -118,10 +119,13 @@ class JuggManager @TestOnly constructor(
         deployFileManager = deployFileManager,
         logger = logger.getInstance("JuggControlPanelController"),
     )
+    private val askAiInvestigation = AskAiInvestigation(project, pathManager, deployTargetManager,
+        compileContextManager, deployFileManager, deployHistoryManager, taskRunnerManager, juggServer,
+        controlPanelController, logger.getInstance("AskAiInvestigation"))
     private val juggConfigurationRunner: JuggConfigurationRunner = JuggConfigurationRunner(project, pathManager,
         deployHistoryManager, juggRunningTaskStatusManager,
         JuggRunningTaskCreator(), gitFileChangesDetector,
-        logger, controlPanelController)
+        logger, controlPanelController, askAiInvestigation)
     private val forceGradleCompileHelper: ForceGradleCompileHelper = IdeaForceGradleCompileHelper(project, juggConfigurationRunner,
         deployFileManager, taskRunnerManager,
         compileContextManager, logger, controlPanelController)
@@ -184,6 +188,10 @@ class JuggManager @TestOnly constructor(
                     logger.getInstance("DiagnosticsCleaner"),
                     retentionDays = 7,
                 )
+            }
+            taskRunnerManager.runBackgroundSafe("Cleanup investigation snapshots", delayMs = 120_000) {
+                ExpiredArtifactCleaner.cleanupExpiredFiles(pathManager.investigationDir,
+                    logger.getInstance("InvestigationCleaner"), retentionDays = 30)
             }
         })
     }
@@ -928,6 +936,8 @@ class JuggManager @TestOnly constructor(
         }
         progressDialog.show()
     }
+
+    fun askAi() = askAiInvestigation.askAi(juggConfigurationRunner)
 
     private fun showReportIssueDialog(
         builder: IssueReportBundleBuilder,

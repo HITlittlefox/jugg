@@ -140,6 +140,12 @@ object JuggLogger {
         map[project.instanceKey]?.fileLogger?.resetLatestCompileLog()
     }
 
+    /** Waits for queued file logs before evidence is copied, without holding the global lifecycle lock. */
+    fun flushProjectLog(project: Project) {
+        ensureKey(project.instanceKey).fileLogger.logger.handlers.forEach { it.flush() }
+        if (Thread.currentThread().isInterrupted) throw InterruptedException("Project log flush was interrupted")
+    }
+
     internal fun getLogDir(project: Project): File? {
         return map[project.instanceKey]?.fileLogger?.dir
     }
