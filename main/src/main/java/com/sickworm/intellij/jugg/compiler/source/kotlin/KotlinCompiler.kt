@@ -259,7 +259,7 @@ class KotlinCompiler(
             .flatMap { it.kotlinPluginOptions }
             .distinct()
         val kspDependencies = allRelativeModules
-           .flatMap { it.kspDependencies ?: emptyList() }
+           .flatMap { it.kspInfo?.processorDependencies ?: emptyList() }
            .map { it.file }
 
         // Detect KSP2 (Kotlin 2.0+)

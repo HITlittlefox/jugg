@@ -297,7 +297,6 @@ class JuggAptCompilerTest {
             runtimeLibraryDependencies = emptyList(),
             annotationProcessorDependencies = emptyList(),
             kaptDependencies = emptyList(),
-            kspDependencies = emptyList(),
             kotlinPlugins = emptyList(),
             kotlinExtensions = emptyList(),
         )

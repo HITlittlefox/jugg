@@ -230,7 +230,7 @@ data class ModuleInfo(
     val isUseCompose: Boolean? = null,
     val isUseViewBinding: Boolean? = null,
     val isUseDataBinding: Boolean? = null,
-    val kspDependencies: List<LibraryDependency>? = null,
+    val kspInfo: KspInfo? = null,
     val instrumentationTargetPackage: String? = null,
     val composeResourceInfo: ComposeResourceInfo? = null,
     /** Effective options declared by Kotlin compiler subplugins for this module. */

@@ -29,9 +29,9 @@ Jugg 支持通过自定义编译器 SPI 扩展内置增量编译链。自定义�
 
 项目后台只需在 `customCompilers` 配置中声明 jar 文件名、路径和 md5。路径可以是本地绝对路径、相对项目目录的路径或 HTTP / HTTPS 地址。
 
-ARouter 的 `@Route`、`@Autowired`、`@Interceptor` 已有内置增量处理，无需下发适配器。项目需保留自己的 annotation processor 依赖及 `AROUTER_MODULE_NAME` 或 `moduleName` 参数。Jugg 比较本轮源码与现有业务 class 中的相关注解值、字段类型、路由身份和必要继承关系，确认变化后才收集完整模块输入、运行项目处理器；生成 Java 继续参与本轮编译。同值常量、显式默认值、属性顺序、等价 import/alias、普通方法体、注释和格式变化不会重新生成。已消费索引不会反复加入普通轮次。
+ARouter 的 `@Route`、`@Autowired`、`@Interceptor` 已有内置增量处理，无需下发适配器。项目需保留自己的处理器依赖：APT/KAPT 使用 `AROUTER_MODULE_NAME` 或 `moduleName`，KSP 使用项目实际的 `AROUTER_MODULE_NAME` 或 `MODULE_NAME` 参数。Jugg 比较本轮源码与现有业务 class 中的相关注解值、字段类型、路由身份和必要继承关系，确认变化后才收集完整模块输入、运行项目处理器；生成 Java/Kotlin 继续参与本轮编译。同值常量、显式默认值、属性顺序、等价 import/alias、普通方法体、注释和格式变化不会重新生成。已消费索引不会反复加入普通轮次。
 
-含 Kotlin 的模块在生成时纳入完整 Java/Kotlin 业务源码，因此新 Kotlin 类型即使没有 ARouter 注解、尚未生成 class，也能参与本轮类型解析。混合模块通过 KAPT 完成生成，支持 Kotlin typealias 导入；仅运行选定的 ARouter processor。纯 Java 模块使用 Java 注解处理路径。生成成功后，产物才进入后续源码编译。
+含 Kotlin 的模块在生成时纳入完整 Java/Kotlin 业务源码，因此新 Kotlin 类型即使没有 ARouter 注解、尚未生成 class，也能参与本轮类型解析。使用 APT/KAPT 时，混合模块通过 KAPT 完成生成，支持 Kotlin typealias 导入；纯 Java 模块使用 Java 注解处理路径。使用 KSP 时，Jugg 运行项目版本的 KSP1 compiler plugin 或 KSP2 Analysis API 引擎，透传当前变体参数，并纳入 commonMain/androidMain 输入；只消费本轮成功生成物。两条路径均仅运行选定的 ARouter processor；同时声明两种 ARouter 处理器时明确失败。生成成功后，产物才进入后续源码编译。
 
 只修改路由常量时，已有常量引用分析先把使用方送入跟编。即使使用方文本未变化，Jugg 仍读取当前常量值，确实影响注解结果才重新生成。ARouter 与 Kuikly 在同一轮共用源码读取和语法分析结果。
 
@@ -41,7 +41,7 @@ ARouter 的 `@Route`、`@Autowired`、`@Interceptor` 已有内置增量处理，
 
 APT 成功但语言编译失败时，已生成源码由原有待完成产物跟踪保留。下一次请求仍比较当前源码与业务 class；存在差异时允许再次执行 APT，pending 期间的新路由修改也会重新判断。D8 或部署失败后，输入相同则沿用既有下游重试。
 
-Jugg 按 APK 基线选择 AndroidX 或旧 Support Fragment，必要时转换 processor JAR。两种类型都有、没有查询结果或多 APK 无法确定归属时使用 AndroidX；本轮编译类路径缺少目标 Fragment 时明确失败。真实 APT 执行失败或生成源码编译错误停止本轮任务。删除路由等导致生成类集合收缩时保留旧生成目录，并要求完整 Gradle 构建。路由注册索引部署沿用现有 App 重启策略。
+APT/KAPT 路径按 APK 基线选择 AndroidX 或旧 Support Fragment，必要时转换 processor JAR。两种类型都有、没有查询结果或多 APK 无法确定归属时使用 AndroidX；本轮编译类路径缺少目标 Fragment 时明确失败。真实 APT/KAPT/KSP 执行失败或生成源码编译错误停止本轮任务。删除路由等导致生成类集合收缩时保留旧生成目录，并要求完整 Gradle 构建。路由注册索引部署沿用现有 App 重启策略。
 
 已加载的 ARouter 自定义处理器实例存在时，Jugg 默认处理器避让，由该实例接管；仅保留配置而未成功加载不触发避让。源码预处理适配器需按当前 Jugg 接口重新编译后使用。迁移到内置处理应移除该项配置，保留其他扩展。当前识别上述三种注解，按项目实际定义读取属性并调用项目处理器，定制 `app` 和不同的生成调用参数数量不会单独被拒绝。早期 `@Param` 或无法解析的新增结构需要核对实际结果。支持范围见[注解器](./annotation-processors.md)。
 

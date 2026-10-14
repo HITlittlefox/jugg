@@ -117,7 +117,8 @@ class SourceCompiler(
             kotlinAptJavaFiles = kotlinCompileResult.outputs
                 .filter { it.type == CompileOutput.Type.Java }
                 .map { CompileFile(CompileFile.Type.Java, it.file, it.baseDir, module) }
-            classCompileResult += kotlinCompileResult
+            // Generated Kotlin inputs must not change the shared parent of the later Java task.
+            classCompileResult += kotlinCompileResult.copy(task = compileTask)
         }
         if (!classCompileResult.isAllSuccess) {
             return classCompileResult.quickFailedOthers(task, isClearOutput = true)

@@ -262,6 +262,9 @@ class JavaCompilerInvoker {
             CompileResult(
                 task,
                 compileItems.map { item ->
+                    if (forceCompilerOutputDebug) {
+                        item.errors.forEach { (_, message) -> logger.warn(message) }
+                    }
                     Result.failure(CompileError(
                         file = item.file,
                         errors = item.errors,

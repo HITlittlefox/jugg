@@ -10,8 +10,10 @@ import com.sickworm.intellij.jugg.compiler.CompileStatusHolder
 import com.sickworm.intellij.jugg.compiler.CompileTask
 import com.sickworm.intellij.jugg.compiler.ICompileContext
 import com.sickworm.intellij.jugg.compiler.ICompiler
+import com.sickworm.intellij.jugg.compiler.file
 import com.sickworm.intellij.jugg.compiler.source.SourceCompiler
 import com.sickworm.intellij.jugg.mock.StdLogger
+import com.sickworm.intellij.jugg.project.data.KspInfo
 import com.sickworm.intellij.jugg.project.data.LibraryDependency
 import com.sickworm.intellij.jugg.project.data.ModuleBuildPathInfo
 import com.sickworm.intellij.jugg.project.data.ModuleInfo
@@ -89,6 +91,111 @@ class ARouterJuggAptProcessorTest {
         }
         source = writeSource("@Route(path = \"/demo/first\")")
         compiler = JuggAptCompiler(context, object : Disposable { override fun dispose() = Unit })
+    }
+
+    @Test
+    fun projectKsp1GeneratesKotlinRoutesWithoutAptArtifacts() = projectKspGeneratesRoutes(false)
+
+    @Test
+    fun projectKsp2GeneratesKotlinRoutesWithoutAptArtifacts() = projectKspGeneratesRoutes(true)
+
+    @Test
+    fun projectKsp1MixedSourcesAndGeneratedKotlinCompileToDex() = projectKspMixedSourcesCompileToDex(false)
+
+    @Test
+    fun projectKsp2MixedSourcesAndGeneratedKotlinCompileToDex() = projectKspMixedSourcesCompileToDex(true)
+
+    private fun projectKspMixedSourcesCompileToDex(ksp2: Boolean) {
+        val common = configureProjectKsp(ksp2)
+        val android = source.baseDir
+        val java = File(android, "demo/JavaScreen.java").apply { parentFile.mkdirs(); writeText("""
+            package demo;
+            @com.alibaba.android.arouter.facade.annotation.Route(path = "/demo/java")
+            public class JavaScreen extends android.app.Activity {
+                public Screen kotlinScreen() { return new Screen(); }
+            }
+        """.trimIndent()) }
+        source.file.writeText(source.file.readText().replace("class Screen : android.app.Activity()",
+            "class Screen : android.app.Activity() { fun javaScreen() = JavaScreen() }"))
+        configureSourceCompilation()
+        val inputs = listOf(source,
+            CompileFile(CompileFile.Type.Kotlin, File(common, "Other.kt"), common, module),
+            CompileFile(CompileFile.Type.Java, java, android, module))
+        val compiler = SourceCompiler(context, object : Disposable { override fun dispose() = Unit })
+        val result = compiler.compile(CompileTask(inputs, File(temporary.root, "ksp-mixed-dex"), CompileStatusHolder.DEFAULT))
+        assertTrue(result.isAllSuccess, result.failedFiles.toString())
+        assertTrue(result.successFiles.map { it.file }.containsAll(inputs))
+        assertTrue(result.successFiles.any { it.file.file.name.startsWith("ARouter") })
+        assertTrue(result.outputs.any {
+            it.type == com.sickworm.intellij.jugg.compiler.CompileOutput.Type.Dex && it.file.name.contains("ARouter")
+        })
+        assertTrue(File(module.buildPathInfo.javaClassPath, "demo/JavaScreen.class").isFile)
+        assertTrue(File(module.buildPathInfo.kotlinClassPath, "demo/Screen.class").isFile)
+        assertEquals(setOf("/demo/first", "/demo/untouched", "/demo/java"),
+            resolvedRoutes("com.tencent.yb.routes.ARouter\$\$Group\$\$demo"))
+    }
+
+    private fun projectKspGeneratesRoutes(ksp2: Boolean) {
+        val common = configureProjectKsp(ksp2)
+        val kotlin = source.file
+        val fixture = com.sickworm.intellij.jugg.compiler.source.kotlin.ARouterKspFixture
+        val generated = generate()
+        assertEquals(3, generated.size)
+        assertTrue(generated.all { it.extension == "kt" })
+        fixture.compile(listOf(kotlin, File(common, "Other.kt")), libraryJars + context.androidJar,
+            module.buildPathInfo.kotlinClassPath.apply { mkdirs() })
+        val checkpoint = File(context.incrementalDataDir, "arouter/routes/debug")
+        val gradle = File(temporary.root, "build/generated/ksp/debug")
+        File(checkpoint, "sources").copyRecursively(gradle)
+        checkpoint.deleteRecursively()
+        whenever(context.getGeneratedSourcePaths(any())).thenReturn(listOf(gradle))
+        module = module.copy(sourceDirs = module.sourceDirs + File(gradle, "kotlin"))
+        updateModule()
+        kotlin.writeText(kotlin.readText().replace("/demo/first", "/demo/latest"))
+        val updated = generate()
+        assertTrue(updated.any { it.readText().contains("/demo/latest") && it.readText().contains("/demo/untouched") })
+        assertFalse(updated.any { it.readText().contains("/demo/first") })
+        val before = updated.associate { it.path to it.readText() }
+        module = module.copy(kspInfo = module.kspInfo!!.copy(arguments = mapOf("MODULE_NAME" to "routes")))
+        updateModule()
+        assertFailsWith<JuggAptFatalException> { generate() }
+        assertEquals(before, updated.associate { it.path to it.readText() })
+        module = module.copy(kspInfo = module.kspInfo!!.copy(arguments = mapOf("AROUTER_MODULE_NAME" to "routes")))
+        updateModule()
+        kotlin.writeText(kotlin.readText().replace("/demo/latest", "/other/latest"))
+        File(common, "Other.kt").delete()
+        assertFailsWith<JuggAptFatalException> { generate() }
+        assertEquals(before, updated.associate { it.path to it.readText() })
+    }
+
+    private fun configureProjectKsp(ksp2: Boolean): File {
+        val fixture = com.sickworm.intellij.jugg.compiler.source.kotlin.ARouterKspFixture
+        processorJars = listOf(fixture.annotation, fixture.processor) + fixture.processorDependencies
+        libraryJars = listOf(fixture.annotation) + libraryJars + fixture.compiler
+        module = module.copy(annotationProcessorDependencies = emptyList(), kaptDependencies = emptyList(),
+            kotlinPlugins = fixture.compiler,
+            kspInfo = KspInfo(processorDependencies = processorJars.map { LibraryDependency(it.name, it) },
+                useKsp2 = ksp2, runtimeDependencies = fixture.runtime(ksp2).map { LibraryDependency(it.name, it) },
+                arguments = mapOf("AROUTER_MODULE_NAME" to "routes", "MODULE_NAME" to "routes")))
+        updateModule()
+        source.file.delete()
+        val common = File(source.baseDir, "commonMain").apply { mkdirs() }
+        val android = File(source.baseDir, "androidMain").apply { mkdirs() }
+        val kotlin = File(android, "Screen.kt").apply { writeText("""
+            package demo
+            import com.alibaba.android.arouter.facade.annotation.Route
+            @Route(path = "/demo/first", app = "custom")
+            class Screen : android.app.Activity()
+        """.trimIndent()) }
+        File(common, "Other.kt").writeText("""
+            package demo
+            @com.alibaba.android.arouter.facade.annotation.Route(path = "/demo/untouched", app = "custom")
+            class Other
+        """.trimIndent())
+        module = module.copy(sourceDirs = listOf(common, android), kotlinCommonSourceDirs = listOf(common))
+        source = CompileFile(CompileFile.Type.Kotlin, kotlin, android, module)
+        updateModule()
+        return common
     }
 
     @Test

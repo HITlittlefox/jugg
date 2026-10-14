@@ -349,13 +349,16 @@ class GradleProjectInfoReader(
                 annotationProcessorDependencies = annotationProcessorDependencies.filterIsInstance<LibraryDependency>(),
                 kaptDependencies = kaptDependencies.filterIsInstance<LibraryDependency>(),
                 coreLibraryDesugaring = coreLibraryDesugaring.filterIsInstance<LibraryDependency>(),
-                kspDependencies = kspDependencies.filterIsInstance<LibraryDependency>(),
+                kspInfo = kspDependencies.filterIsInstance<LibraryDependency>().takeIf { it.isNotEmpty() }
+                    ?.let { KspInfo(processorDependencies = it) },
             )
         } catch (e: Throwable) {
             println("Jugg: get dependency info for ${project.standardModuleName} failed: $e")
             printException(e)
         }
         TraceLogger.end("getDep")
+
+        moduleInfo = readKspTask(project, moduleInfo)
 
         moduleInfo = moduleInfo.copy(
             composeResourceInfo = getComposeResourceInfo(project, moduleInfo),
@@ -364,6 +367,53 @@ class GradleProjectInfoReader(
 
         TraceLogger.end("getModule:${project.standardModuleName}")
         return moduleInfo
+    }
+
+    /** Reads the selected variant's resolved processor artifacts, including project dependencies. */
+    private fun readKspTask(project: Project, module: ModuleInfo): ModuleInfo {
+        val suffix = module.buildVariant.camelCompat
+        val names = listOf("ksp${suffix}KotlinAndroid", "ksp${suffix}Kotlin") +
+            if (project.plugins.hasPlugin("com.android.kotlin.multiplatform.library")) listOf("kspAndroidMain") else emptyList()
+        val task = names.asSequence().mapNotNull { findTaskByNameWithRetry(project, it) }.firstOrNull() ?: return module
+        return try {
+            val config = readProperty(task, "kspConfig")
+            val ksp2 = config != null
+            val values = readProperty(task, "options")
+            val options = ((if (values is org.gradle.api.provider.Provider<*>) values.orNull else values) as? List<*>)
+                .orEmpty().mapNotNull { option ->
+                    val key = readProperty(option, "key")?.toString() ?: return@mapNotNull null
+                    key to readProperty(option, "value").toString()
+                }
+            val processorFiles = if (ksp2) readKspClasspath(config, "processorClasspath")
+                else options.filter { it.first == "apclasspath" }.flatMap { it.second.split(File.pathSeparator).map(::File) }
+                    .ifEmpty { project.configurations.findByName("${readProperty(task, "name")}ProcessorClasspath")?.files?.toList().orEmpty() }
+            val runtimeFiles = if (ksp2) readKspClasspath(task, "kspClasspath")
+                else readKspClasspath(task, "pluginClasspath")
+            val arguments = if (ksp2) {
+                val value = readProperty(config, "processorOptions")
+                (if (value is org.gradle.api.provider.Provider<*>) value.orNull else value) as? Map<String, String> ?: emptyMap()
+            } else options.filter { it.first == "apoption" && it.second.contains('=') }
+                .associate { it.second.substringBefore('=') to it.second.substringAfter('=') }
+            module.copy(kspInfo = KspInfo(
+                processorDependencies = processorFiles.distinct().map { LibraryDependency(it.name, it) },
+                runtimeDependencies = runtimeFiles.distinct().map { LibraryDependency(it.name, it) },
+                arguments = arguments, useKsp2 = ksp2,
+                languageVersion = readKspVersion(config ?: readProperty(task, "compilerOptions"), "languageVersion"),
+                apiVersion = readKspVersion(config ?: readProperty(task, "compilerOptions"), "apiVersion")))
+        } catch (failure: Throwable) {
+            println("Jugg: cannot read selected KSP task ${readProperty(task, "name")} for ${module.name}: $failure")
+            printException(failure)
+            module
+        }
+    }
+
+    private fun readKspClasspath(owner: Any?, name: String): List<File> =
+        (readProperty(owner, name) as? FileCollection)?.files?.toList().orEmpty()
+
+    private fun readKspVersion(config: Any?, name: String): String? {
+        val value = readProperty(config, name)
+        val resolved = if (value is org.gradle.api.provider.Provider<*>) value.orNull else value
+        return readProperty(resolved, "version")?.toString() ?: resolved?.toString()
     }
 
     /** Reads resolved runtime library artifacts only for modules that contribute final APK contents. */

@@ -6,6 +6,7 @@ import com.sickworm.intellij.jugg.compiler.CompileTask
 import com.sickworm.intellij.jugg.compiler.ICompileContext
 import com.sickworm.intellij.jugg.compiler.source.apt.*
 import com.sickworm.intellij.jugg.project.data.ModuleInfo
+import com.sickworm.intellij.jugg.compiler.source.kotlin.KspProcessorRunner
 import java.io.File
 import java.util.Locale
 
@@ -84,8 +85,8 @@ class ARouterJuggAptProcessor : BaseJuggAptProcessor() {
         val roots = if (ownedSources) listOf(checkpoint.sourceRoot) else context.getGeneratedSourcePaths(module)
         // Gradle outputs may be shared; other processors' classes must not enter ARouter shrink checks.
         val priorNames = roots.filter { it.exists() }.flatMap { root ->
-            sourceFiles(root).filter { it.extension == "java" && (ownedSources || it.name.contains("ARouter")) }
-                .map { it.relativeTo(root).invariantSeparatorsPath }
+            sourceFiles(root).filter { it.extension in listOf("java", "kt") && (ownedSources || it.name.contains("ARouter")) }
+                .map { generatedIdentity(it) }
         }.distinct()
         return Preparation(sources, priorNames)
     }
@@ -125,6 +126,16 @@ class ARouterJuggAptProcessor : BaseJuggAptProcessor() {
         checkpoint: GeneratedSourceCheckpoint, prepared: Preparation): List<CompileFile> {
         val options = module.javaAnnotationProcessorOptions.orEmpty() + module.kaptArguments.orEmpty()
         val paths = (module.annotationProcessorDependencies + module.kaptDependencies).map { it.file.canonicalFile }.distinct()
+        val kspPaths = module.kspInfo?.processorDependencies.orEmpty().map { it.file.canonicalFile }.distinct()
+        val kspProcessor = compatibility.projectKspProcessor(kspPaths, module)
+        if (kspProcessor != null) {
+            check(!compatibility.hasAptProcessor(paths)) { "Both APT/KAPT and KSP declare ARouter processors for ${module.name}" }
+            val kspOptions = module.kspInfo?.arguments.orEmpty()
+            check(kspOptions.containsKey("AROUTER_MODULE_NAME") || kspOptions.containsKey("MODULE_NAME")) {
+                "AROUTER_MODULE_NAME or MODULE_NAME is missing for ${module.name}"
+            }
+            return generate(context, module, prepared, kspProcessor, kspPaths, kspOptions, checkpoint, true)
+        }
         val original = compatibility.projectProcessor(paths, module)
         check(options.containsKey("AROUTER_MODULE_NAME") || options.containsKey("moduleName")) { "AROUTER_MODULE_NAME or moduleName is missing for ${module.name}" }
         val work = File(context.tempCompileDir, "arouter/${module.name}")
@@ -132,6 +143,11 @@ class ARouterJuggAptProcessor : BaseJuggAptProcessor() {
         val effectivePaths = compatibility.replaceProcessorJar(paths, original.jar, selected.jar)
         val effectiveContext = compatibility.processorContext(context, original.jar, selected.jar)
         return generate(effectiveContext, module, prepared, selected, effectivePaths, options, checkpoint)
+    }
+
+    private fun generatedIdentity(file: File): String {
+        val pkg = Regex("""(?m)^\s*package\s+([\w.]+)""").find(file.readText())?.groupValues?.get(1)
+        return listOfNotNull(pkg, file.nameWithoutExtension).joinToString(".")
     }
 
     private fun warnSkipped(context: ICompileContext, module: ModuleInfo, files: List<File>, failure: Throwable) {
@@ -142,16 +158,17 @@ class ARouterJuggAptProcessor : BaseJuggAptProcessor() {
     /** Generation failures and class removal retain the existing fail-closed contract. */
     private fun generate(context: ICompileContext, module: ModuleInfo, prepared: Preparation,
         processor: ARouterProcessorCompatibility.ProjectProcessor, paths: List<File>, options: Map<String, String>,
-        checkpoint: GeneratedSourceCheckpoint): List<CompileFile> {
+        checkpoint: GeneratedSourceCheckpoint, ksp: Boolean = false): List<CompileFile> {
         val start = System.nanoTime()
-        val moduleName = options["AROUTER_MODULE_NAME"] ?: options.getValue("moduleName")
-        context.logger.info("ARouter processor started for $moduleName (${module.name})")
+        val moduleName = options["AROUTER_MODULE_NAME"] ?: options["MODULE_NAME"] ?: options.getValue("moduleName")
+        context.logger.info("ARouter processor started for $moduleName (${module.name}).")
         try {
-            val generated = AnnotationProcessorRunner().generate(context, module, prepared.sources, paths, processor.names, options,
-                File(context.tempCompileDir, "arouter/${module.name}"))
-            val names = sourceFiles(generated).filter { it.extension == "java" }
-                .map { it.relativeTo(generated).invariantSeparatorsPath }.sorted()
-            val removed = prepared.priorNames - names.toSet()
+            val work = File(context.tempCompileDir, "arouter/${module.name}")
+            val generated = if (ksp) KspProcessorRunner().generate(context, module, prepared.sources, paths, processor.names, options, work)
+                else AnnotationProcessorRunner().generate(context, module, prepared.sources, paths, processor.names, options, work)
+            val outputs = sourceFiles(generated).filter { it.extension in listOf("java", "kt") }
+            val names = outputs.map { it.relativeTo(generated).invariantSeparatorsPath }.sorted()
+            val removed = prepared.priorNames - outputs.map { generatedIdentity(it) }.toSet()
             check(removed.isEmpty()) { "ARouter generated classes were removed (${removed.joinToString()}); run a full Gradle build" }
             checkpoint.publish(generated)
             // Old input signatures are no longer a baseline; comparison uses current business classes.
@@ -159,11 +176,11 @@ class ARouterJuggAptProcessor : BaseJuggAptProcessor() {
                 val obsolete = File(checkpoint.folder, name)
                 if (obsolete.exists() && !obsolete.delete()) context.logger.warn("Cannot remove obsolete ARouter metadata $obsolete")
             }
-            context.logger.info("ARouter generated ${names.size} Java sources for $moduleName")
+            context.logger.debug("ARouter generated ${names.size} sources for $moduleName")
             return names.map { name ->
                 val file = File(checkpoint.sourceRoot, name)
-                context.logger.info("ARouter generated source: ${file.absolutePath}")
-                CompileFile(CompileFile.Type.Java, file, checkpoint.sourceRoot, module)
+                context.logger.debug("ARouter generated source: ${file.absolutePath}")
+                CompileFile(if (file.extension == "kt") CompileFile.Type.Kotlin else CompileFile.Type.Java, file, checkpoint.sourceRoot, module)
             }
         } finally {
             val seconds = (System.nanoTime() - start) / 1_000_000_000.0

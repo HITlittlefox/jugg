@@ -1,6 +1,6 @@
 # 工程化：项目模型与 Gradle 集成
 
-> 最后核对：2026-09-17
+> 最后核对：2026-10-14
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -18,6 +18,7 @@
 | 类/接口 | 文件 | 作用 |
 |---|---|---|
 | `JuggProjectInfo` / `ModuleInfo` | `main/src/main/java/com/sickworm/intellij/jugg/project/data/JuggProjectInfo.kt` | Gradle 项目/模块快照，记录 AGP R8 classpath、source/res/manifest/classpath/dependency/applicationId/androidTest 与外部构建信息 |
+| `KspInfo` | `main/src/main/java/com/sickworm/intellij/jugg/project/data/KspInfo.kt` | 模块 KSP task 的 processor/runtime classpath 和有效选项；压缩形态 `KspInfoSerialize` 位于 `JuggProjectInfoSerialize.kt` |
 | `ModuleBuildPathInfo` | `main/src/main/java/com/sickworm/intellij/jugg/project/data/JuggProjectInfo.kt` | 多 AGP 版本及自定义 Gradle build directory 的输出路径兼容推断 |
 | `JuggPathManager` | `main/src/main/java/com/sickworm/intellij/jugg/project/JuggPathManager.kt` | 项目级 Jugg 文件布局：project info、compile context、deploy history、classpath、日志、MCP fetch cache |
 | `JuggGlobalPathManager` | `main/src/main/java/com/sickworm/intellij/jugg/project/JuggGlobalPathManager.kt` | 用户级全局文件布局：优先 `~/.jugg`，不可写时回退 `${java.io.tmpdir}/jugg-<user>`；覆盖 hot update、deploy cache、resource、CLI/skills/hooks、test flag |
@@ -65,7 +66,8 @@
 | `applicationId` / `namespace` | APK 归属、manifest、androidTest target 解析基础 |
 | `isUseDataBinding` | Gradle 读取的 DataBinding build feature；合并后必须保留，供增量 layout 编译选择 DataBinding 模式 |
 | `instrumentationTargetPackage` | 非空表示 synthetic androidTest module |
-| `kaptDependencies` / `kspDependencies` / `kotlinPlugins` | 注解处理和 Kotlin 编译输入 |
+| `kaptDependencies` / `kotlinPlugins` | KAPT 处理器和 Kotlin 编译输入 |
+| `kspInfo` | 当前 KSP task 的 processor/runtime 依赖、参数、KSP1/KSP2 模式及 language/API version；无 KSP 时为 null |
 | `kotlinJvmTarget` / `kotlinFreeCompilerArgs` / `kotlinPluginOptions` | Kotlin 编译任务的有效 JVM target、附加编译参数与 Gradle subplugin 参数；`kotlinFreeCompilerArgs` 已包含由 typed `compilerOptions.optIn` 转换出的 `-opt-in=<marker>` |
 | `kotlinCommonSourceDirs` | 选中 Android Kotlin compilation 视为 common 的 Kotlin source roots；非 KMP 或读取失败时为空列表 |
 | `kotlinFragmentSourceDirs` | 选中 Android Kotlin task 暴露的 fragment 到 source roots 映射；旧快照或不支持时为空 map |
@@ -77,6 +79,12 @@
 `JuggProjectInfo.agpR8Classpath` 是根项目级字段。Gradle init script 从实际 Android plugin classloader 加载 `com.android.tools.r8.D8` 并读取 code source；若该路径属于 Gradle `jars-*` / `transforms-*` instrumentation cache，则从 Android module 或 root project 的 buildscript classpath 恢复同名原始 artifact。原始 artifact 不可用时字段保持 `null`，由 dex 阶段使用 Jugg 内置 R8，避免把依赖 Gradle 私有类的 instrumentation 产物带出 Gradle classloader。Jugg 不复制 R8 分发包；IDE/CLI 只把路径注入内存中的 compile context，不写入 `FullBuildInfo` 或 `compile_context.db`。合并 composite build 快照时优先选择最终 Application module 所属 Gradle 快照的路径，避免 included build 的 AGP R8 覆盖主应用。
 
 `kotlinJvmTarget` 与 `kotlinFreeCompilerArgs` 优先从当前变体 Kotlin 编译任务的 `compilerOptions` 读取，以兼容 Kotlin 2.x typed compiler options；旧版 Kotlin Gradle Plugin 才回退到 task 或 Android extension 的 `kotlinOptions`。Kotlin 2.x 的 opt-in marker 保存在独立的 typed `compilerOptions.optIn`，不保证折叠进 `freeCompilerArgs`；reader 把每个 marker 转换为 `-opt-in=<marker>` 与 free args 合并，按完整参数字符串去重并保持原有参数顺序，读取不到 `optIn` 时只舍弃该增强、保留原有参数。`kotlinPluginOptions` 从 task 的 `KotlinCompilerPluginData.options.arguments` 读取，保留 Gradle subplugin 已解析的必填参数和原始顺序，读取失败时为空并由 Kotlin 编译失败兜底处理。Kotlin 编译消费该字段时与 plugin JAR 使用相同的 current-to-parent module 范围聚合，并删除完全相同的重复项；不得只收紧参数继承范围，否则可能加载父模块插件却遗漏其 required option。Kotlin task 发现不依赖旧 Kotlin Android plugin ID，兼容 AGP 9 Built-in Kotlin，并在传统 variant task 之后尝试 KMP Android task `compileAndroidMain`。不得直接对 Android extension 调用 `getByName("kotlinOptions")`，否则属性不存在时会产生反射异常，并让增量编译错误回退到默认 JVM target 1.8。
+
+`ModuleInfo.kspInfo` 将 KSP metadata 收拢为 `KspInfo`，其 `processorDependencies` 保留原 `kspDependencies` 的 processor classpath 语义；reader 优先从当前变体 `ksp<Variant>KotlinAndroid` / `ksp<Variant>Kotlin` task（AGP Android KMP 为 `kspAndroidMain`）读取实际 JAR，包含 `ksp project(...)` 的 project artifact，不混入其他变体/target 的配置。KSP1 从有效 `options` 读取 `apclasspath` / `apoption`，缺少 apclasspath 时解析该 task 的 ProcessorClasspath configuration；KSP2 从 `kspConfig.processorClasspath` / `processorOptions` 读取。无 task 的旧工程保留原有 configuration 读取路径。
+
+`KspInfo.runtimeDependencies` 记录所选 task 的 engine 文件，KSP1 来自 `pluginClasspath`、KSP2 来自 `kspClasspath`；模块的 project Kotlin compiler 仍从既有 `kotlinPlugins` 取得。processor 与 engine 有不同职责，不能把同一份 processor classpath 当作 engine classpath。`arguments`、`useKsp2`、`languageVersion`、`apiVersion` 保存有效参数及 task 模式，KSP2 根据 `kspConfig` 判定，不能用 Kotlin 2.x artifact 名推断 KSP2。只有 legacy configuration 时 bean 仅保存 processor 依赖，未知模式仍为 null；无 task 且无 processor 时整个 bean 为 null。
+
+该 bean 同步经过 Groovy/Gson snapshot、merger、CLI 路径转换与依赖备份。压缩快照的 `ModuleInfoSerialize.kspInfo` 使用 `KspInfoSerialize` 一并保存参数和两类 dependencyList 索引，模块 metadata 不重复保存 KSP 信息。模型由平铺字段改为 bean，`JuggProjectInfoSerialize.VERSION` 从 9 升至 10；普通读取拒绝所有旧版本快照（包括无 KSP 的模块），沿既有流程刷新项目信息。Groovy loader 保留文件中的实际 version，不把旧文件改标为当前版本。既有显式跳过版本校验的读取仅恢复仍可读取的项目信息，旧平铺 KSP 字段不迁移，不能用于证明完整 KSP 环境已就绪。
 
 `kotlinCommonSourceDirs` 从 `compile<Variant>Kotlin` / `compile<Variant>KotlinAndroid` task 的 `commonSourceSet` 结构读取，保留 direct common root、中间 `sharedMain` root 和 task 配置的 generated common roots。K2 task 另从 `multiplatformStructure` 读取 fragment sources、refines edge 和 default fragment。两者都不依据 source-set 名称或 `src/<name>` 路径猜测。Gradle reader 会把这些 roots 同时加入 `sourceDirs`；merge 出口保证 common roots 是 `sourceDirs` 子集，并完整保留 Gradle authoritative fragment graph，IDE 的扁平 `sourceDirs` 不覆盖这些身份。
 

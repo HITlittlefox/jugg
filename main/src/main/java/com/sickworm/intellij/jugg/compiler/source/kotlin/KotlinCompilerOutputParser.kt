@@ -44,6 +44,9 @@ class KotlinCompilerOutputParser(
         get() = innerOutputs.flatMap { it.value }
 
     fun getResult(isCompileSuccess: Boolean): List<Result<CompileFile, CompileError>> {
+        if (!isCompileSuccess && forceCompilerOutputDebug) {
+            innerErrors.values.flatten().map { it.second }.distinct().forEach { logger.warn(it) }
+        }
         return files.map { file ->
             val errorDetails = innerErrors[file]
             if (errorDetails != null) {

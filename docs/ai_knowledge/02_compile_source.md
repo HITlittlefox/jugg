@@ -81,10 +81,13 @@ SourceCompiler.doModuleCompile()
        -> minified 场景交给 DexMinifyCompiler；非 minified 直接返回 dex + 非 class 附属产物
 ```
 
+Kotlin 阶段结果汇总后仍绑定准备阶段的 `compileTask`，保留所有 details/outputs，供后续 Java 结果按共同父任务合并。不能把加入 generated Kotlin 输入后的累计 task 用于该合并；否则混合编译即使两语言都成功，仍会因 `CompileTask.plus()` 的 parent 校验失败而回退 Gradle。全局父任务校验、取消和进度传播保持原契约。
+
 这条链路的核心顺序不能随意调整：JuggApt/DataBinding 必须在语言编译前完成，Kotlin 必须早于 Java，minify 必须在 dex 之后执行。
 
 `SourceCompiler.prepareSourceCompile()` 在语言编译前执行 `JuggAptCompiler`，生成 Java 的目录先供 Kotlin 解析，再进入正常 Java 编译。生成异常或生成文件的直接语言诊断命中 `failClosed` 时，本轮明确失败，不能通过移除生成源码重试掩盖；普通处理器保留可降级路径。扩展接线及 ARouter 检测、生成和恢复边界见 `02_compile_custom_ui.md` §4。
 ARouter 处理器在自身打印原异常 warn，并只向通用编译链交付不含项目细节的失败标记；`JuggCompilerHelper` 保持通用的查看日志提示。生成源码的直接语言诊断仍由语言编译路径处理。
+公共 APT runner 的失败摘要不展开 `CompileError` 列表；Java APT 和 Kotlin KAPT 在构造失败结果时将实际诊断以 warn 输出，不打印空诊断的连带失败文件，Kotlin 广播到多文件的同一诊断只打印一次。
 
 ### 4.1 Kotlin 模块身份与元数据
 
@@ -174,7 +177,7 @@ ARouter 的比较基线、pending 生命周期及完整 Gradle 构建恢复边�
 - Hilt 入口转换不是完整注解处理支持。它只维护 Hilt `2.41`～`2.60.1` 已有生成物对应的入口字节码形态；生成物缺失或无法读取时失败，用户自行选择 Gradle fallback，不新增 Hilt 专属自动回退。
 - core library rewrite 只在 APK database 已发现 `j$.*` 时查找 `desugar.json`；不能因为工程声明了依赖就无条件为所有模块启用。
 - Kotlin 输出消息直接匹配标签并保留最后一个标签的既有分类语义，避免无标签的 KAPT 长 classpath/参数行触发贪婪正则的平方级回溯；日志内容、诊断和产物映射保持原有契约。
-- KAPT 场景下 Kotlin 编译器 warning/error 文本会按 debug 记录，避免用户可见输出被 APT/KAPT 噪音淹没；失败判定仍由 parser 处理。
+- KAPT 场景下 Kotlin 编译器输出先按 debug 记录；构造失败结果时将收集的错误诊断去重后以 warn 输出，warning 和普通进度输出保持 debug。失败判定仍由 parser 处理。
 - Kotlin compiler plugin 参数优先复用 Gradle task 已解析的 `KotlinCompilerPluginData.options.arguments`，兼容 Kotlin Gradle Plugin 的 `kotlin_gradle_plugin_common` 与旧 `kotlin_gradle_plugin` getter；读取不到时保持空列表，不伪造插件参数。参数与 plugin JAR 使用同一个 current-to-parent module 列表聚合，兼容 KMP 等将插件信息保存在父模块的场景，并删除完全相同的重复项。不得只收紧参数继承范围，否则可能加载父模块插件却遗漏其 required option；plugin owner 范围如需调整，必须同时覆盖 JAR、参数与 compiler classpath。
 - Gradle-resolved plugin 参数只在本轮加载项目 compiler plugin 时转换为 `-P`。已加载插件报 `unsupported plugin option` 时，仅移除该 plugin id 的 Gradle-resolved 参数并共享全局单次重试预算；降级成功后按 compiler toolchain 与原参数集缓存，toolchain 或参数变化后重新尝试。用户显式写入 `kotlinFreeCompilerArgs` 的参数不参与该降级。
 - compiler plugin 报 `required plugin option not present` 时只重试一次。Jugg 优先从 JAR 的 `CommandLineProcessor` service 与 class 常量识别 plugin id，再回退旧的文件名匹配；命中的插件仅在本次 invoker 后续编译中禁用，无法识别时保留原始失败，不扩大为禁用全部插件。

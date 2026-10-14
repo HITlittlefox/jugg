@@ -33,6 +33,27 @@ internal class ARouterProcessorCompatibility {
         return candidates.single()
     }
 
+    fun projectKspProcessor(paths: List<File>, module: ModuleInfo): ProjectProcessor? {
+        val candidates = paths.mapNotNull { file ->
+            if (!file.isFile || file.extension != "jar") return@mapNotNull null
+            val names = JarFile(file).use { jar ->
+                val entry = jar.getJarEntry("META-INF/services/com.google.devtools.ksp.processing.SymbolProcessorProvider")
+                    ?: return@use emptyList<String>()
+                jar.getInputStream(entry).bufferedReader().use { it.readLines() }
+                    .map { it.substringBefore('#').trim() }
+                    .filter { it.startsWith("com.alibaba.android.arouter.") }
+                    .distinct().onEach { name ->
+                        check(jar.getJarEntry("${name.replace('.', '/')}.class") != null) { "ARouter KSP SPI class $name is missing from $file" }
+                    }
+            }
+            if (names.isEmpty()) null else ProjectProcessor(file, names)
+        }
+        check(candidates.size <= 1) { "Ambiguous ARouter KSP processors for ${module.name}: $candidates" }
+        return candidates.singleOrNull()
+    }
+
+    fun hasAptProcessor(paths: List<File>): Boolean = paths.any { processorNames(it).isNotEmpty() }
+
     private fun processorNames(file: File): List<String> {
         if (!file.isFile || !file.extension.equals("jar", ignoreCase = true)) return emptyList()
         val names = AnnotationProcessorClasspath.names(file).filter { it.startsWith("com.alibaba.android.arouter.compiler.processor.") }

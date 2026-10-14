@@ -26,7 +26,7 @@ class AnnotationProcessorRunner {
             aptPaths = dependencies.map(::File), aptOptions = options, dependencies = dependencies,
             processorNames = processorNames, generatedSourceDir = generated,
         ))
-        check(result.isAllSuccess) { "Annotation generation failed for ${module.name}: ${result.failedFiles}" }
+        check(result.isAllSuccess) { "Annotation generation failed for ${module.name}; see compiler diagnostics above" }
         return generated
     }
 

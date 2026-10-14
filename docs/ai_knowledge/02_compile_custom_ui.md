@@ -80,7 +80,7 @@ BaseCompileContext.customCompilers
 
 ### 4.3 内置 ARouter 处理
 
-`ProcessorRegistration` 默认注册 `ARouterJuggAptProcessor`，不要求 custom compiler 配置或单独 JAR。它复用项目 `annotationProcessor` / `kapt` 依赖，不把 ARouter compiler 打入插件。若 `context.customCompilers` 中存在已加载的外部 `IJuggAptProcessor.id == "ARouter"` 实例，内置实例跳过，由外部扩展处理；扩展需按当前接口重新编译，迁移时只移除该扩展配置，保留其他 custom compiler。
+`ProcessorRegistration` 默认注册 `ARouterJuggAptProcessor`，不要求 custom compiler 配置或单独 JAR。它复用项目 `annotationProcessor` / `kapt` / `ksp` 依赖，不把 ARouter compiler 打入插件。若 `context.customCompilers` 中存在已加载的外部 `IJuggAptProcessor.id == "ARouter"` 实例，内置实例跳过，由外部扩展处理；扩展需按当前接口重新编译，迁移时只移除该扩展配置，保留其他 custom compiler。
 
 `ARouterJuggAptProcessor.prepare()` 比较本轮源码的实际注解输入、声明身份及相关类型结构与现有业务 class，只有确认差异后才收集完整模块源码执行聚合生成。比较包括定制注解属性，不依赖生成模板；普通方法体、格式与无关成员变化不触发生成。删除最后一个注解仍须检查旧 class 的贡献；现有声明的 class 缺失不能误判为新增。源码与 class 无法可靠关联时按下述检测失败边界收口，关联策略见 `ARouterBaseline.classes()` / `requireReliableAssociation()`。
 
@@ -97,6 +97,12 @@ ARouter 的 `AptSemanticResolver` 只在本轮准备期间复用类型和源码�
 Project Info 的 AAR 类路径和 processor JAR 可能分别处于 Jetifier 之后、之前，不能以 `android.enableJetifier` 判断处理器已转换。`ARouterProcessorCompatibility.selectProcessor()` 对照处理器实际 Fragment 要求、APK 基线信号和本轮有效编译类路径：仅单 APK 明确只含 Support 时选择 Support，其余情况默认 AndroidX。`containsApkClass()` 的空结果也可能表示数据库不可用，不能断言 APK 没有该类；选择后仍须验证类路径含目标 Fragment。
 
 Fragment 要求与所选目标不同才转换 processor 的独立副本，并同时替换 KAPT、javac 的 processor path 和辅助 classpath；不覆盖项目文件，不转换其他 runtime/annotation 依赖。转换后校验 Fragment 引用及 SPI，无法可靠识别或转换时生成失败。
+
+`ARouterProcessorCompatibility.projectKspProcessor()` 从 `SymbolProcessorProvider` SPI 发现项目 ARouter KSP 实现，按当前模块有效 KSP 参数调用；不按 artifact 名称判定 processor。同一模块同时声明 ARouter APT/KAPT 与 KSP，或发现多个 KSP processor JAR 时明确失败，避免执行顺序决定索引。KSP 参数接受 `AROUTER_MODULE_NAME` 或 `MODULE_NAME`，不从 APT/KAPT 参数补造配置。
+
+`KspProcessorRunner.generate()` 在独立临时目录执行完整模块聚合：KSP1 复用 `K2JVMCompilerIsolate` 加载项目 compiler/plugin，Kotlin 2.x 的 KSP1 仍使用 classic frontend（language/API 上限 1.9）；KSP2 以独立 classloader 加载当前 task 的 Analysis API runtime 与项目 provider，通过 `KSPJvmConfig` / `KotlinSymbolProcessing.execute()` 执行，不要求新增 JVM 进程。两者透传处理器参数和 common sources，只读取本轮生成的 Java/Kotlin 源码，拒绝将旧 Gradle KSP 输出视为成功结果。KSP2 API/engine 缺失或不兼容时明确失败，不改用插件内嵌版本。
+
+KSP 产物复用同一 checkpoint 和 failClosed 边界；生成类身份按 package 与文件类名比较，忽略 Gradle 与本轮输出根的 `java/`、`kotlin/` 布局差异。生成 Kotlin 返回 `CompileFile.Type.Kotlin`，沿用现有后续编译处理。该入口只扩展 ARouter；Moshi 的既有 KSP 范围不随本次修复扩大。
 
 `AnnotationProcessorRunner.generate()` 对混合 Java/Kotlin 模块使用原生 KAPT，对纯 Java 模块使用 javac，均只执行选定的项目处理器。完整聚合输入进入同一次生成，产物先留在临时目录，成功后由 `GeneratedSourceCheckpoint.publish()` 发布，再交既有 Kotlin/Java 编译链；普通语言编译保持 APT/KAPT 关闭，DataBinding 的既有输出语义不变。
 
