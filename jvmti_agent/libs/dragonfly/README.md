@@ -19,6 +19,6 @@ Packaging notes:
 - The remaining dex2jar-generated Java 8 classes are normalized to Java 6 because they do not contain `StackMapTable`; this removes D8 control-flow warnings without changing the generated DEX.
 - Dragonfly classes move to `com.sickworm.intellij.jugg.internal.dragonfly.**`; bundled Kotlin, coroutines, and Guava classes move below `com.sickworm.intellij.jugg.internal.dragonfly.runtime.**`.
 - The Gradle build consumes only the committed `*-jugg.jar` files. Jar Jar is not part of the normal build flow.
-- Both relocated JARs are packaged into `jugg-instruments.jar` and `jugg-runtime.jar`.
+- Both relocated JARs and the ViewHierarchy package are packaged only into the APK-injected `jugg-runtime.jar`, so the App ClassLoader can resolve host Compose types. Bootstrap `jugg-instruments.jar` must not define these classes.
 - Dragonfly uses its bundled private runtime and no longer depends on the host app's Kotlin runtime.
 - Compose compatibility failures are contained by Dragonfly and do not fall back to Jugg's legacy node extraction.

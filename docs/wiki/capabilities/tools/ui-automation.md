@@ -45,6 +45,14 @@ jugg layout-dump --all-windows
 
 `layout-dump` outputs a public HTML artifact suitable for Agents and users. Internal JSON is reused only by tool implementations and is not a stable public interface.
 
+## When Compose content is missing
+
+If part of the hierarchy cannot be extracted, `layout-dump` preserves the valid HTML and marks the summary with `incomplete hierarchy`. The result's `warnings` and HTML node diagnostics describe the cause. Missing text in this output does not prove that the element is absent from the page.
+
+`view-locate`, `view-inspect`, and element-mode `tap` still return results for valid matches, along with collection diagnostics. If there is no match and the current window's hierarchy is incomplete, they return `UI_HIERARCHY_INCOMPLETE`. `truncated` separately indicates a node or result budget limit.
+
+After upgrading the plugin, if the tree still stops at a Compose host without content, use Jugg's full Gradle build and install the updated APK before collecting again. Restarting an old APK alone does not guarantee an updated in-app runtime. If diagnostics remain, keep the HTML and reported cause, and check the reported Compose runtime/tooling compatibility issue.
+
 ## Element location
 
 ```text

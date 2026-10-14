@@ -47,6 +47,34 @@ class LayoutDumpMcpToolActionTest {
     }
 
     @Test
+    fun testIncompleteLayoutKeepsArtifactsAndReportsWarnings() {
+        val projectDir = createTempDir(prefix = "jugg_layout_incomplete_")
+        val setup = setup(projectDir, packageName = "com.example.app")
+        Mockito.mockConstruction(ViewHierarchyClient::class.java) { mock, _ ->
+            Mockito.`when`(mock.dumpLayout(anyOrNull(), any(), any())).thenReturn(
+                LayoutDumpResult(
+                    payloadJson = """{"warnings":["Compose tooling unavailable"],"windows":[{"root":{
+                        "className":"FrameLayout","children":[
+                          {"className":"ComposeView","message":"Compose tooling unavailable"},
+                          {"className":"TextView","text":"Available"}]
+                    }}]}""",
+                    remoteFilePath = null,
+                )
+            )
+        }.use {
+            val result = LayoutDumpMcpToolAction().execute(mapOf("projectDir" to projectDir.absolutePath), setup.runtime)
+            Assert.assertEquals(McpToolStatus.OK, result.status)
+            Assert.assertTrue(result.message.contains("incomplete hierarchy"))
+            val data = result.data as Map<*, *>
+            Assert.assertEquals(listOf("Compose tooling unavailable"), data["warnings"])
+            val html = File(data["file"] as String).readText()
+            Assert.assertTrue(html.contains("Available"))
+            Assert.assertTrue(html.contains("Compose tooling unavailable"))
+            Assert.assertEquals("html", result.artifacts.single().type)
+        }
+    }
+
+    @Test
     fun testLayoutDumpUsesServerInlineJsonWhenAvailable() {
         val projectDir = createTempDir(prefix = "jugg_layout_dump_json_")
         val setup = setup(projectDir, packageName = "com.example.app")

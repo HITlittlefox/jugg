@@ -102,6 +102,8 @@ tags:
 
 ViewHierarchy 相关工具执行前会等待 App 在线。设备息屏或未解锁会返回 `DEVICE_NOT_INTERACTIVE`；目标 App 不在前台会返回 `APP_NOT_FOREGROUND`。
 
+局部 UI 采集失败时，`layout-dump` 保留有效 HTML，并在摘要标记 `incomplete hierarchy`；结果可选 `data.warnings` 和 HTML 节点诊断给出原因。定位、查询和元素触控命中有效节点时仍返回结果并携带诊断；未命中且当前窗口采集不完整时返回 `UI_HIERARCHY_INCOMPLETE`。预算截断仍单独使用 `truncated`。恢复步骤见 [UI 自动化](../capabilities/tools/ui-automation.md#compose-内容缺失时)。
+
 ## 常见错误码
 
 | 错误码 | 含义 |
@@ -116,6 +118,7 @@ ViewHierarchy 相关工具执行前会等待 App 在线。设备息屏或未解�
 | `NO_DEVICE` | 无可用设备。 |
 | `DEVICE_NOT_INTERACTIVE` | 设备息屏或非交互态。 |
 | `APP_NOT_FOREGROUND` | 目标 App 不在前台。 |
+| `UI_HIERARCHY_INCOMPLETE` | 当前窗口的 UI 层级采集不完整，无法断言目标元素不存在。 |
 | `INTERNAL_ERROR` | 内部错误。 |
 
 ## 未公开 Action

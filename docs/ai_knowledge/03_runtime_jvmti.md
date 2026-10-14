@@ -36,7 +36,7 @@
 | `HotfixLoader` | `jvmti_agent/src/main/java/com/sickworm/intellij/jugg/hotfix/HotfixLoader.java` | 初始化 app code cache 路径，识别 compat flag，并安装 dex/resource patch |
 | `RootlessCompatDeployImporter` | `jvmti_agent/src/main/java/com/sickworm/intellij/jugg/hotfix/RootlessCompatDeployImporter.java` | 在 `BootstrapApplication.attachBaseContext()` 早期导入 Host 暂存的 rootless 兼容请求：校验协议、包名、requestId、payload SHA-256 与 expected overlay id，私有 staging 后原子提交 `code_cache/.overlay`，overlay id 最后写入；失败只保留旧 overlay 并输出一行结果日志 |
 | `jugg_agent_setup.sh` | `jvmti_agent/src/main/script/jugg_agent_setup.sh` | 在 app `code_cache/startup_agents` 中放置版本化 agent so |
-| `buildAgentBundle.gradle` | `jvmti_agent/buildAgentBundle.gradle` | 将 Jugg runtime 与预处理后的 Dragonfly JAR 编译进 `jugg-instruments.jar`，并打包 64/32 位 so 和 setup script，生成 plugin resource |
+| `buildAgentBundle.gradle` | `jvmti_agent/buildAgentBundle.gradle` | 把 bootstrap instrumentation 编译进 `jugg-instruments.jar`，采集链与私有 Dragonfly 仅合并到 `jugg-runtime.jar`，并打包 64/32 位 so 和 setup script，生成 plugin resource |
 
 ---
 
@@ -262,10 +262,12 @@ compat deploy 不执行 framework transform，因此不安装 `ClassLoader#getRe
 
 - native 目标库是 `jugg_jvmti_agent`，构建入口是 `jvmti_agent/CMakeLists.txt`。
 - `jvmti_agent/buildAgentBundle.gradle` 生成 `BuildConfig.AGENT_VERSION`、`AGENT_BUNDLE_PATH`、flag 文件名，并把 agent bundle 放到 plugin resource 路径。
-- `jugg-instruments.jar` 是 native agent 通过 `AddToBootstrapClassLoaderSearch()` 实际加载的 DEX JAR；ViewHierarchy 依赖的 Dragonfly 必须随 Jugg runtime class 一起进入该产物，不能只存在于 Gradle 注入 App 的 `jugg-runtime.jar`。
+- `jugg-instruments.jar` 是 native agent 通过 `AddToBootstrapClassLoaderSearch()` 加载的 DEX JAR，仅保留 instrumentation/hotfix/Direct runtime。`viewhierarchy.**` 和私有 Dragonfly 只能进入 APK 注入的 `jugg-runtime.jar`，否则 bootstrap 无法解析宿主 `androidx.compose.*`，且 Dragonfly adapter 会缓存不可用结果。构建按 DEX class definitions 校验采集链未泄漏到 bootstrap。
 - Dragonfly 主体来源是上游 AAR 中源码编译的 `classes.jar`，AAR Manifest、asset 和 native library 不进入 Jugg。`jvmti_agent/libs/dragonfly/preprocess.sh` 使用固定 SHA-256 的 Jar Jar Abrams 完成私有包名重写，并剔除 Jugg 不使用且旧 D8 无法读取 `NestHost` 属性的 `DragonflyJvmtiBridge` class。`implementation_0.jar` 仍由固定版本 dex2jar 转换；预处理会删除仅供 Kuikly hook 使用、且会触发 AGP 8.8 D8 frame 分析崩溃的 dexlib2 子树，该可选调用已由 Dragonfly 的 `Throwable` 边界收口。
 - implementation 中 dex2jar 生成的 Kotlin 子集会替换为固定 SHA-256 的源码编译 Kotlin stdlib 2.0.0，并继续重命名到 `com.sickworm.intellij.jugg.internal.dragonfly.runtime.kotlin.**`；其余 dex2jar class 在删除旧 Kotlin 与 dexlib2 后才将缺少 `StackMapTable` 的 Java 8 class version 规范为 Java 6。正式 Gradle 流程只消费仓库中的 `*-jugg.jar`，既避免宿主 App 同名依赖冲突，也不依赖宿主提供 Kotlin runtime。
-- `jugg-runtime.jar` 继续合并相同的预处理 Dragonfly JAR，保持 `GradleApplicationInjector` 的单 runtime JAR 接口；构建同时校验私有 Dragonfly、Kotlin runtime 入口存在且原包 class entry 不存在。
+- `jugg-runtime.jar` 合并完整 ViewHierarchy 与预处理 Dragonfly JAR，保持 `GradleApplicationInjector` 的单 runtime JAR 接口；构建校验服务入口、私有 Dragonfly、Kotlin runtime 存在且原包 class entry 不存在。`BootstrapApplication` 显式使用 Context 的 App ClassLoader 反射调用 `ViewHierarchyServerLoader.init(Context)`；入口有最小 R8 keep，字符串加载的 ComposeAdapter 构造器仅在宿主含 AbstractComposeView 时保留，避免无 Compose 的 Java App 因可选依赖而混淆失败；名称匹配所需的 AbstractComposeView/AndroidComposeView 使用精确 keepnames。启动失败保留异常栈并提示完整构建安装，不能影响 App 启动。
+- 首次探测到真实 Compose 宿主后，在 Dragonfly lazy 提取前启用 source information，再异步让出一次布局/绘制机会。后台请求共用 5 秒超时，超时取消回调；主线程不等待下一帧。具体流程和局部诊断见 `08_mcp_layout_verify_design.md`。
+- 此加载边界调整使用 Agent `1.0.83`；更新插件后必须重新 Gradle 构建并安装 APK，使 App 中的 runtime 同步更新。只重启旧 APK 不能用于验证新加载边界。
 - 工程根 `build.gradle` 的 `agentVersion` 是设备目录、startup agent 文件名前缀和 bundle 文件名的共同版本源。
 - 修改 `jvmti_agent` 里的 native、Java runtime（含 `ViewExpressionEvaluator` / `view-inspect` 求值）、setup script 或 bundle 内容后，必须递增 `agentVersion`。`isAgentBundlePushed()` 只看 `/data/local/tmp/jugg/{AGENT_VERSION}` 是否已有 4 个文件；同版本插件更新不会重推，设备会继续加载旧 `jugg-instruments.jar`。
 - 32 位 app 使用 `_alt.so`：bundle 打包时把 armeabi-v7a so 改名为 `jugg_jvmti_agent_alt.so`，`attachAgentToApp()` / setup script 都依赖这个约定。

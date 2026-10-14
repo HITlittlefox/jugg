@@ -1,6 +1,6 @@
 # MCP UI 布局验证设计
 
-> 最后核对：2026-08-21
+> 最后核对：2026-10-14
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -88,6 +88,14 @@ centerY           = (top + bottom) / 2
 
 推荐判定口径沿用旧批量验证约束：绝对差 `<= 2dp`，或相对差 `<= 5%`。该口径是 Agent 报告约定，不代表当前公开工具有 `tolerance` 参数。
 
+### Compose 加载与不完整采集
+
+`BootstrapApplication` 通过 Context 的 App ClassLoader 反射启动 ViewHierarchy；整个采集链和私有 Dragonfly 仅在 APK runtime 中定义。首次发现 Compose 宿主时先启用 adapter，再通过主线程帧回调后的消息采集；请求后台等待至多 5 秒，过期请求及帧回调取消。无 Compose 的窗口直接使用现有提取路径，后续请求不重复初始化。
+
+Dragonfly 的 `error` / `warning` 属性写入节点 `message`，snapshot 聚合为可选 `warnings`。HTML 保留带诊断节点，并转义 `diagnostic` 属性；dump 仍输出有效 artifact，摘要标记 `incomplete hierarchy`。`truncated` 继续只表示预算截断。探测到宿主但没有提取内容时说明“可能为空或 tooling 不可用”，不据此断言 API 不兼容。
+
+查找命中有效内容时保留原有成功结果并附 `warnings`；未命中且当前窗口范围有诊断时，App 侧返回 `UI_HIERARCHY_INCOMPLETE:` 原因，IDE 映射为同名错误码，避免把不完整树当作 `ELEMENT_NOT_FOUND`。dump、find、inspect 和元素 tap 使用同一 snapshot 诊断；未发生诊断的结果不增加字段。升级后需完整 Gradle 构建安装新 APK，冷启动加载器与原现场页面结果仍需真机验收。
+
 ### 4.2 有 Figma 的 UI 证据链
 
 ```text
@@ -138,14 +146,14 @@ tap
 | `layout-dump` 公开 HTML，不公开内部 JSON | Agent 不应依赖内部 JSON 文件路径作为稳定接口 |
 | ViewHierarchy 是 App 内 LocalSocket Server-only | socket 不可用时不要假设会自动回退 uiautomator |
 | Dragonfly 窗口枚举有旧路径降级 | Dragonfly 返回空或枚举失败时，以 `ActivityThread` / `WindowManagerGlobal` Best-effort 补根窗口，节点仍由 Dragonfly 转换；这不是旧 ViewTree 数据源回退 |
-| Dragonfly 使用 Jugg 私有包名 | 源 DEX JAR 经离线 dex2jar + Jar Jar 预处理，Dragonfly API 与内置 Kotlin、coroutines、Guava、dexlib2 依赖统一进入 `com.sickworm.intellij.jugg.internal.dragonfly.**`，并同时打入 `jugg-instruments.jar` 与 `jugg-runtime.jar`；正式构建不执行重命名，避免宿主 App 同名类冲突 |
+| Dragonfly 使用 Jugg 私有包名 | 源 DEX JAR 经离线 dex2jar + Jar Jar 预处理，Dragonfly API 与内置 Kotlin、coroutines、Guava、dexlib2 依赖统一进入 `com.sickworm.intellij.jugg.internal.dragonfly.**`，仅打入 APK 注入的 `jugg-runtime.jar`，由 App ClassLoader 加载；采集链不进入 bootstrap instruments；正式构建不执行重命名，避免宿主 App 同名类冲突 |
 | Dragonfly 不依赖宿主 Kotlin | `implementation_0.jar` 提供的 Kotlin 与协程运行时一并私有化，纯 Java App 也可使用 layout dump；私有运行时缺失由构建产物校验直接阻止发布 |
 | snapshot 范围同时约束查询和动作 | 5000 节点/60 层限制发生在 Dragonfly 原始提取之后；selector、tap、inspect、verify 无法访问被截断范围，原始提取先失败时也没有 `truncated:true` |
 | Compose action 仍是坐标降级 | 元素模式 `tap` 可按 Compose text/虚拟 id 命中，但当前只向所属 root View 的 bounds 中心派发 MotionEvent，不等价于 Semantics action，也无法可靠判断 disabled/stale |
 | Compose inspect 属性有限 | 当前只能反射 Dragonfly 节点现有 getter；Android View 专属 getter 会在对应 expression 返回 error |
 | Compose layout verify 属性有限 | text、bounds 和几何关系可用；Dragonfly 未提供的 clickable/enabled/padding/alpha/background 等属性返回 unavailable |
 | Compose 虚拟 ID 依赖确定性遍历 | window/children 顺序和 UI 结构不变时跨请求一致；重排、插入或重组可能改变 ID |
-| Dragonfly Compose 依赖宿主 Compose runtime/tooling 兼容性 | Compose 能力已并入新的 Dragonfly DEX JAR，并在不兼容时局部收口；具体版本覆盖仍需目标 App 验证 |
+| Dragonfly Compose 依赖宿主 Compose runtime/tooling 兼容性 | 初始化前通过真实 View 的 AbstractComposeView 继承链探测宿主，启用后异步让出一帧再提取；失败保留有效兄弟节点和 error/warning 诊断，具体版本覆盖仍需目标 App 验证 |
 | `view-locate` selector 是精确 AND | className 只接受完整类名或 simple name 精确匹配；不要依赖子串匹配 |
 | `view-locate` 候选有响应预算 | `matchCount` 可能大于 `returnedCount`；`truncated=true` 时应收紧 selector，不要把未返回节点视为不存在 |
 | `view-locate` 多命中不返回顶层坐标 | 必须从 `matches[]` 观察候选并补充 selector，不能把首个节点当作稳定断言或点击目标 |

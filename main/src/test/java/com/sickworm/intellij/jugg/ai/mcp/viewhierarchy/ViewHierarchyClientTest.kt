@@ -10,6 +10,19 @@ import java.io.File
 class ViewHierarchyClientTest {
 
     @Test
+    fun testIncompleteCaptureDoesNotBecomeTapTargetNotFound() {
+        val client = StubViewHierarchyClient(
+            FakeDeviceAdb(emptyMap()), "com.example.app", listOf("jugg_vh"),
+            mapOf("jugg_vh" to ViewHierarchyResponse(
+                "error", "UI_HIERARCHY_INCOMPLETE: Compose tooling unavailable",
+                jsonObject("""{"matchCount":0,"elements":[],"warnings":["Compose tooling unavailable"]}"""),
+            )),
+        )
+        val result = client.findAndTap("Missing", null, null, null)
+        Assert.assertTrue(result is FindAndTapResult.Failure)
+    }
+
+    @Test
     fun testResolveSocketCandidatesPreferMainProcessAndKeepAllPids() {
         val adb = FakeDeviceAdb(
             shellOutputs = mapOf(
@@ -157,6 +170,7 @@ class ViewHierarchyClientTest {
                     message = null,
                     data = jsonObject(
                         """{
+                          "warnings": ["Other Compose host failed"],
                           "matchCount": 3,
                           "returnedCount": 1,
                           "truncated": true,
@@ -199,6 +213,7 @@ class ViewHierarchyClientTest {
             ),
             client.requests.single().params,
         )
+        Assert.assertEquals(listOf("Other Compose host failed"), result?.warnings)
         Assert.assertEquals(3, result?.matchCount)
         Assert.assertEquals(1, result?.returnedCount)
         Assert.assertEquals(true, result?.truncated)

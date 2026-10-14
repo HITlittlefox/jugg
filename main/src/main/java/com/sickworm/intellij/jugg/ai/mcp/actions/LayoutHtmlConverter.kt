@@ -69,6 +69,7 @@ internal class LayoutHtmlConverter {
         val id = if (rawId != null && rawId.startsWith("_vir_id_")) null else rawId
         val text = node.get("text")?.asStringOrNull()
         val contentDesc = node.get("contentDesc")?.asStringOrNull()
+        val diagnostic = node.get("message")?.asStringOrNull()
         val bounds = node.getArrayOrNull("bounds")?.let { formatBounds(it) }
         val clickable = node.get("clickable")?.runCatching { asBoolean }?.getOrDefault(false) ?: false
         val enabled = node.get("enabled")?.runCatching { asBoolean }?.getOrDefault(true) ?: true
@@ -82,6 +83,8 @@ internal class LayoutHtmlConverter {
         if (clickable) sb.append(" clickable")
         if (!enabled) sb.append(" disabled")
         if (!contentDesc.isNullOrEmpty()) sb.append(""" desc="${escapeAttr(contentDesc)}"""")
+
+        if (!diagnostic.isNullOrEmpty()) sb.append(""" diagnostic="${escapeAttr(diagnostic)}"""")
 
         val hasChildren = children != null && children.size() > 0
         if (!hasChildren && text.isNullOrEmpty()) {
@@ -125,6 +128,8 @@ internal class LayoutHtmlConverter {
         val clickable = node.get("clickable")?.runCatching { asBoolean }?.getOrDefault(false) ?: false
         val alpha = node.get("alpha")?.runCatching { asFloat }?.getOrNull()
         val className = node.get("className")?.asStringOrNull() ?: ""
+
+        if (!node.get("message")?.asStringOrNull().isNullOrEmpty()) return false
 
         // Keep any node that has semantic content
         if (!text.isNullOrEmpty()) return false

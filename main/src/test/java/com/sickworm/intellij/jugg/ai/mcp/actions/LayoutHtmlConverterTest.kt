@@ -12,6 +12,20 @@ class LayoutHtmlConverterTest {
 
     private val converter = LayoutHtmlConverter()
 
+    @Test
+    fun testExtractionDiagnosticKeepsHostAndEscapesMessage() {
+        val json = """
+            {"windows":[{"root":{"className":"DecorView","children":[
+              {"className":"ComposeView","id":"_vir_id_1","message":"Missing <tooling> & runtime"},
+              {"className":"TextView","text":"Available"}
+            ]}}]}
+        """.trimIndent()
+        val html = converter.convert(JsonParser.parseString(json).asJsonObject)
+        Assert.assertTrue(html.contains("<ComposeView"))
+        Assert.assertTrue(html.contains("Missing &lt;tooling&gt; &amp; runtime"))
+        Assert.assertTrue(html.contains("Available"))
+    }
+
     // --- Window structure ---
 
     @Test

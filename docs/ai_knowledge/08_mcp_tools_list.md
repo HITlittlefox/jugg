@@ -207,13 +207,15 @@
 
 **行为要点**：
 - 走 App 进程内 `ViewHierarchyServer`（LocalSocket），**不回退 uiautomator**。
-- App 侧节点数据源为 Dragonfly；传统 Android View 与 Compose 节点统一适配为原有 `windows/root/children` JSON，公开 MCP/HTML 格式不变。Dragonfly 无法枚举窗口时，窗口根列表 Best-effort 降级到旧 `ActivityThread` / `WindowManagerGlobal` 反射路径，根节点仍交给 Dragonfly 提取。
+- App 侧节点数据源为 Dragonfly；传统 Android View 与 Compose 节点统一适配为原有 `windows/root/children` JSON，保留原有结构，可选增加 `warnings`；带诊断节点的 HTML 保留转义后的 `diagnostic` 属性。Dragonfly 无法枚举窗口时，窗口根列表 Best-effort 降级到旧 `ActivityThread` / `WindowManagerGlobal` 反射路径，根节点仍交给 Dragonfly 提取。
 - HTML 侧虚拟节点裁剪：无语义内容的结构性节点自动裁剪。
 - Jugg snapshot 剪枝：`MAX_DEPTH=60`，`MAX_NODE_COUNT=5000`。限制作用于 Dragonfly 返回后的标准化阶段，dump、selector、tap、inspect、verify 都只能访问该范围；超限时 `truncated:true`。若 Dragonfly 原始提取阶段先失败，则无法返回 `truncated:true`。
 - 所有 `bounds`/`padding` 单位为 dp（`dp = (int)(px / density)`）。
 - 虚拟 ID 格式 `_vir_id_<hash>`；Dragonfly window/children 遍历顺序和 UI 结构不变时跨请求一致，可用于后续 selector，但不保证列表重排或页面重组后仍指向同一业务节点。
 - `className` 仅保留简单类名；`id` 去掉包名前缀。
 - Kuikly 框架控件（`KRRichTextView` 等）text 通过 `KuiklyViewResolver` 反射提取。
+- ViewHierarchy 与私有 Dragonfly 仅在注入 APK 的 runtime 中定义，由 App ClassLoader 加载；更新插件后需完整 Gradle 构建安装新 APK，单纯重启旧 APK 不保证更新。首次启用 Compose 后异步让出一帧再采集，不阻塞主线程等待。
+- 局部提取错误/警告保留在节点 `message` 和结果可选 `warnings`，dump 保留有效 HTML 并在摘要标记 `incomplete hierarchy`。成功的 locate/inspect/元素 tap 仍可使用有效内容并携带诊断；未命中且当前窗口采集不完整时返回 `UI_HIERARCHY_INCOMPLETE`，不可据此断言元素不存在。预算 `truncated` 与采集诊断分别报告。
 - Dragonfly 自带私有化 Kotlin/协程运行时，纯 Java 工程不再因缺少宿主 Kotlin 而返回 `FEATURE_NOT_SUPPORTED`。Compose runtime/tooling 不兼容时由 Dragonfly 局部收口，不切换到旧节点数据源。
 - socket 不可连时：先 `restart` 一次 → 若仍失败 `gradle-build` → `deploy` → `restart` → 重试。
 

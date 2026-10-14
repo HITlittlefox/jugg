@@ -137,6 +137,7 @@ open class ViewHierarchyClient(
                 density = 0.0,
                 matches = emptyList(),
                 errorMessage = response.message ?: "find_elements failed",
+                warnings = parseWarnings(response.data),
             )
         }
         val data = response.data ?: return null
@@ -147,6 +148,7 @@ open class ViewHierarchyClient(
             truncated = data.get("truncated")?.runCatching { asBoolean }?.getOrDefault(false) ?: false,
             density = data.get("density")?.runCatching { asDouble }?.getOrDefault(0.0) ?: 0.0,
             matches = matches,
+            warnings = parseWarnings(data),
         )
     }
 
@@ -227,6 +229,7 @@ open class ViewHierarchyClient(
                 density = 0.0,
                 values = emptyList(),
                 errorMessage = message,
+                warnings = parseWarnings(data),
             )
         }
 
@@ -261,6 +264,7 @@ open class ViewHierarchyClient(
             density = density,
             values = values,
             source = source,
+            warnings = parseWarnings(data),
         )
     }
 
@@ -301,6 +305,7 @@ open class ViewHierarchyClient(
                 y = y,
                 matchedElement = matchedElement,
                 matchCount = matchCount,
+                warnings = parseWarnings(data),
             )
         }
 
@@ -310,10 +315,13 @@ open class ViewHierarchyClient(
         val candidates = parseCandidates(data)
 
         return when {
+            message.startsWith("UI_HIERARCHY_INCOMPLETE:") -> FindAndTapResult.Failure(message)
+
             matchCount != null && matchCount > 1 -> FindAndTapResult.Multiple(
                 matchCount = matchCount,
                 matches = candidates,
                 message = message,
+                warnings = parseWarnings(data),
             )
 
             matchCount != null && matchCount == 0 -> FindAndTapResult.NotFound(
@@ -324,6 +332,9 @@ open class ViewHierarchyClient(
             else -> FindAndTapResult.Failure(message)
         }
     }
+
+    private fun parseWarnings(data: JsonObject?): List<String> =
+        data?.optJsonArray("warnings")?.mapNotNull { it.runCatching { asString }.getOrNull() }.orEmpty()
 
     private fun parseMatchedElement(element: JsonObject?): MatchedElementData? {
         if (element == null) {

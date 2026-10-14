@@ -102,6 +102,8 @@ Continue until `data.status` is `success`, `failed`, `canceled`, or `unknown`. T
 
 ViewHierarchy tools wait for the app to be online before running. A screen that is off or locked returns `DEVICE_NOT_INTERACTIVE`. If the target app is not in the foreground, they return `APP_NOT_FOREGROUND`.
 
+If part of the UI hierarchy cannot be extracted, `layout-dump` preserves valid HTML and marks its summary with `incomplete hierarchy`. Optional `data.warnings` and HTML node diagnostics give the cause. Location, inspection, and element input still return results for valid matches, along with diagnostics. If there is no match and the current window's hierarchy is incomplete, they return `UI_HIERARCHY_INCOMPLETE`. Budget limits continue to use `truncated` separately. For recovery steps, see [UI automation](../capabilities/tools/ui-automation.md#when-compose-content-is-missing).
+
 ## Common error codes
 
 | Error code | Meaning |
@@ -116,6 +118,7 @@ ViewHierarchy tools wait for the app to be online before running. A screen that 
 | `NO_DEVICE` | No available device. |
 | `DEVICE_NOT_INTERACTIVE` | The device screen is off or the device is not interactive. |
 | `APP_NOT_FOREGROUND` | The target app is not in the foreground. |
+| `UI_HIERARCHY_INCOMPLETE` | The current window's UI hierarchy is incomplete; the target element cannot be assumed to be absent. |
 | `INTERNAL_ERROR` | Internal error. |
 
 ## Non-public actions

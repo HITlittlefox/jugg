@@ -150,6 +150,8 @@ internal object LayoutDumpHelper {
                     jsonFile = localJsonFile,
                     htmlFile = localHtmlFile,
                     contentBytes = contentBytes,
+                    warnings = jsonElement.asJsonObject.getAsJsonArrayOrEmpty("warnings")
+                        .mapNotNull { it.asStringOrNull() },
                 )
                 successOutput = output
                 output.toPublicResult()
@@ -167,6 +169,7 @@ internal object LayoutDumpHelper {
             val jsonFile: File,
             val htmlFile: File,
             val contentBytes: Int,
+            val warnings: List<String> = emptyList(),
         ) : DumpInternalResult()
 
         data class Failure(val result: McpToolResult) : DumpInternalResult()
@@ -176,10 +179,10 @@ internal object LayoutDumpHelper {
         return McpToolResult(
             status = McpToolStatus.OK,
             message = summary,
-            data = mapOf<String, Any>(
+            data = linkedMapOf<String, Any>(
                 "file" to htmlFile.absolutePath,
                 "contentBytes" to contentBytes,
-            ),
+            ).apply { if (warnings.isNotEmpty()) put("warnings", warnings) },
             artifacts = listOf(McpArtifact(type = "html", path = htmlFile.absolutePath)),
             errorCode = null,
         )
@@ -223,7 +226,9 @@ internal object LayoutDumpHelper {
         val clickableCount = countClickable(windows)
         val truncated = root.get("truncated")?.runCatching { asBoolean }?.getOrDefault(false) ?: false
         val truncatedText = if (truncated) "truncated" else "not truncated"
-        return "$windowCount windows (top: $topTitle), $nodeCount nodes, $clickableCount clickable, $truncatedText"
+        val warnings = root.getAsJsonArrayOrEmpty("warnings").mapNotNull { it.asStringOrNull() }
+        val diagnostic = if (warnings.isEmpty()) "" else "; incomplete hierarchy: ${warnings.joinToString("; ")}"
+        return "$windowCount windows (top: $topTitle), $nodeCount nodes, $clickableCount clickable, $truncatedText$diagnostic"
     }
 
     private fun countNodes(windows: JsonArray): Int {

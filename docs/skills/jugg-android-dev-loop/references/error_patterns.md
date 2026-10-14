@@ -16,6 +16,15 @@ Schema: `id, stage(compile|deploy|runtime|observe), signature{includes,regex}, d
   confidence_hint: 0.98
   auto_apply: false
 
+- id: UI_HIERARCHY_INCOMPLETE
+  stage: observe
+  signature: {includes: ["UI_HIERARCHY_INCOMPLETE", "incomplete hierarchy"]}
+  diagnosis: part of the UI hierarchy could not be extracted; missing nodes do not prove that the element is absent
+  fix_strategy: preserve available artifacts and warnings; after a plugin upgrade, use a full Jugg Gradle build and install to update the app runtime; otherwise inspect the reported Compose tooling error
+  fix_scope: low
+  confidence_hint: 0.95
+  auto_apply: false
+
 - id: NO_DEVICE
   stage: deploy
   signature: {includes: ["NO_DEVICE", "no device"]}
