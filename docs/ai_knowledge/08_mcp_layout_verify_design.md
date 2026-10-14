@@ -92,6 +92,8 @@ centerY           = (top + bottom) / 2
 
 `BootstrapApplication` 通过 Context 的 App ClassLoader 反射启动 ViewHierarchy；整个采集链和私有 Dragonfly 仅在 APK runtime 中定义。首次发现 Compose 宿主时先启用 adapter，再通过主线程帧回调后的消息采集；请求后台等待至多 5 秒，过期请求及帧回调取消。无 Compose 的窗口直接使用现有提取路径，后续请求不重复初始化。
 
+Dragonfly 私有 Kotlin 不得改写宿主 Compose ABI。源码 JAR 中 `mapTree$default` 的 Function3 参数与回调工厂保留宿主类型，内置运行库定义继续全部私有化。若异常描述符中出现 `internal.dragonfly.runtime.kotlin.jvm.functions.Function3`，属于重定位错误，不能仅凭 `NoSuchMethodError` 判断为宿主 Compose 版本缺少方法；此问题从 Agent `1.0.84` 修正。
+
 Dragonfly 的 `error` / `warning` 属性写入节点 `message`，snapshot 聚合为可选 `warnings`。HTML 保留带诊断节点，并转义 `diagnostic` 属性；dump 仍输出有效 artifact，摘要标记 `incomplete hierarchy`。`truncated` 继续只表示预算截断。探测到宿主但没有提取内容时说明“可能为空或 tooling 不可用”，不据此断言 API 不兼容。
 
 查找命中有效内容时保留原有成功结果并附 `warnings`；未命中且当前窗口范围有诊断时，App 侧返回 `UI_HIERARCHY_INCOMPLETE:` 原因，IDE 映射为同名错误码，避免把不完整树当作 `ELEMENT_NOT_FOUND`。dump、find、inspect 和元素 tap 使用同一 snapshot 诊断；未发生诊断的结果不增加字段。升级后需完整 Gradle 构建安装新 APK，冷启动加载器与原现场页面结果仍需真机验收。

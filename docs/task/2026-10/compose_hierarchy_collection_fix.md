@@ -152,3 +152,37 @@ Wiki 已确认受影响页面：`zh/capabilities/tools/ui-automation.md` 目前�
 - `08_cli_tools_list.md`：CLI / skill 版本与分发要求。
 - `10_wiki_authoring.md`、`10_wiki_architecture.md`、`.agents/skills/wiki-writer/SKILL.md`：Wiki 写作、中文基准镜像与 production 验证。
 - 用户报告、原始 JOJO dump 与同任务历史日志、设备旧 instruments DEX、native `AddToBootstrapClassLoaderSearch` 和 Dragonfly binary API/错误节点反汇编，详见第 1 节。文档中的建议只作为调查资料，实施范围由用户批准的本方案确定。
+
+## 8. 后续现场：宿主 Kotlin ABI 重定位修复
+
+### 失败证据与规则确认
+
+- 加载边界修正后的现场为 JOJO `build/jugg/mcp_fetch/layout-dump/layout_1791990123320.json` 与 HTML；同任务 `build/jugg/log/compile_latest.log` 在 `2026-10-14 23:02:03.454` 记录了 5 个节点及提取异常。异常已经通过 warnings 对外保留，但 Compose 内容仍未恢复。
+- 原始 Dragonfly 调用 `SlotTreeKt.mapTree$default(CompositionData, kotlin.jvm.functions.Function3, ContextCache, int, Object)`；旧预处理产物将第二个参数和回调工厂的返回接口都改成私有 Function3。现场 APK `classes18.dex` 的方法定义及 JOJO 现场缓存的 tooling-data JAR 使用标准 Kotlin Function3，其余参数一致，因此本次原因是错误重定位，不能归因于宿主没有 mapTree 方法。
+- 扫描原始源码 JAR 全部宿主 Compose 方法引用，仅 mapTree 的描述符包含 Kotlin 类型；Function3 在该源码 JAR 中也仅由 `ComposeExtractorKt.class` 使用。这个回调由 `invokedynamic` 工厂创建，没有继承私有 Kotlin Lambda 的桥接需求。
+
+### 最小修复
+
+- 新增 `jarjar-host-api-rules.txt`：精确 identity rule `kotlin.jvm.functions.Function3 -> kotlin.jvm.functions.Function3`，且必须排在 `kotlin.**` 通配规则之前。
+- `preprocess.sh` 仅为 Dragonfly 源码 JAR 拼接上述规则；stdlib 和 implementation 仍只用原公共规则，将全部运行库定义和引用私有化。不能对两个输入统一排除 Function3，也不能只还原宿主调用描述符却保留私有回调接口。
+- 更新提交的 `dragonfly_0-jugg.jar`；逐 entry 比较确认仅 `ComposeExtractorKt.class` 内容改变，其他条目和类集合相同。`implementation_0-jugg.jar` 保持原提交内容，不混入本次无需修改的 dex2jar 再生成结果。
+- Agent 从 `1.0.83` 升至 `1.0.84`。不新增反射桥接、宿主业务改动或全局 dontwarn。
+
+### 验证与交付
+
+- 测试价值：宿主方法描述符、可赋给宿主的回调接口、运行库命名空间是实际链接契约，由新增 L1 `DragonflyRuntimeAbiTest` 检查最终 `/deploy/jugg-runtime.jar`。不增加生产 mock seam；新增的两项测试在修复前均断言失败，修复后通过。
+- 使用 JOJO 日志列出的本地真实 Compose 依赖，独立 JVM 加载原 Dragonfly 与私有运行库，调用公开 `buildTree`：旧 JAR 稳定复现现场同一个 NoSuchMethodError；新 JAR 和最终合并 runtime 均实际完成宿主 mapTree、Dragonfly 回调并生成 `ComposeNodeContext`，组成单组的 CompositionGroup 已被读取。该验证证明宿主 API/回调链接，不替代 Android 页面采集验收。
+- 定向回归共 135 项通过：Agent 19 项；main 原有 113 项、新增 ABI 2 项及既有纯 Java minified APK L3 1 项。无宿主 Compose/Kotlin 的真实 R8 构建通过；`:idea:compileKotlin`、`:idea:buildPlugin` 和脚本语法检查通过。
+- 分发包内 runtime 与构建输出字节一致，并含 `jugg-agent-bundle-1.0.84.zip`；instruments SHA-256 与上次相同，采集链仍只在 APK runtime。临时日志：`/tmp/jugg-compose-abi-red.log`、`/tmp/jugg-compose-abi-preprocess.log`、`/tmp/jugg-compose-abi-host-red.log`、`/tmp/jugg-compose-abi-host-green.log`、`/tmp/jugg-compose-abi-host-final.log`、`/tmp/jugg-compose-abi-final.log`。
+- 同步 `03_runtime_jvmti.md`、`08_mcp_layout_verify_design.md` 和 Dragonfly README。Wiki 的用户操作、结果与升级步骤没有改变，不新增内部 ABI 细节。
+
+| 本次最终产物 | SHA-256 |
+|--------------|---------|
+| `dragonfly_0-jugg.jar` | `015aa0f57df1e84492a43d9b3b9b228de100105c0dac8cefe61365ad49e01988` |
+| `jugg-runtime.jar` | `b803eadc8c3889ff92a797988336d0f0c74cd6c8991e0167b7870086b1edd848` |
+| `jugg-instruments.jar` | `afe85e8dac813b6e32d315dee18016988276a6d61b75239bb5d6bd6bd07654ee` |
+| `jugg-3.5.4-release.zip` | `048df53c239844fdff1bebba1dc5592dd17e3874f464226aaade62ef65f8aaa3` |
+
+本次未安装插件到当前 IDE、未重新构建安装 JOJO、未执行设备同页 dump/定位；第 7 节旧产物指纹保留为历史记录，后续验收应使用本节 Agent 和 runtime。需安装本次插件，再完整 Gradle 构建安装新 APK 后冷启动，旧 APK 的重启或仅替换 bootstrap agent 无法更新这里修正的 APK runtime。
+
+本次依据沿用第 7 节实际文档清单；新增现场依据为上述同任务 dump/日志、原始与预处理 Dragonfly 字节码、宿主 DEX/API 定义和真实宿主调用的失败/成功证据。外部只读调查阶段参考 `.agents/skills/issue-handler/references/local-agent-investigation-guide.md`；后续实施由用户明确授权，不将附件中的建议当作指令。
