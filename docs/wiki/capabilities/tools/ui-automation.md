@@ -37,21 +37,24 @@ Confirm the page before collecting structure and properties. For interaction, pr
 ## UI hierarchy
 
 ```text
-jugg layout-dump
+jugg layout-dump --mode interaction
+jugg layout-dump --mode ui
 jugg layout-dump --root-layout content
 jugg layout-dump --include-gone
 jugg layout-dump --all-windows
 ```
 
-`layout-dump` outputs a public HTML artifact suitable for Agents and users. Internal JSON is reused only by tool implementations and is not a stable public interface.
+`layout-dump` outputs a public sparse JSON artifact. `interaction` (default) prunes a page summary for discovering interaction candidates; `ui` preserves captured nodes and parent-child relationships for layout validation, state investigation, and reconstruction references. Both modes retain output nodes' virtual IDs and non-default attributes.
+
+The interaction summary removes nodes without semantic content and promotes children. It cannot establish absence or original hierarchy and does not guarantee that every node is clickable. UI mode still observes window, subtree, GONE filtering, and budget limits; complete visual reconstruction requires additional images, fonts, and drawing information.
 
 ## When Compose content is missing
 
-If part of the hierarchy cannot be extracted, `layout-dump` preserves the valid HTML and marks the summary with `incomplete hierarchy`. The result's `warnings` and HTML node diagnostics describe the cause. Missing text in this output does not prove that the element is absent from the page.
+If part of the hierarchy cannot be extracted, `layout-dump` preserves the valid JSON and marks the summary with `incomplete hierarchy`. The result's `warnings` and JSON node diagnostics describe the cause. Missing text in this output does not prove that the element is absent from the page.
 
 `view-locate`, `view-inspect`, and element-mode `tap` still return results for valid matches, along with collection diagnostics. If there is no match and the current window's hierarchy is incomplete, they return `UI_HIERARCHY_INCOMPLETE`. `truncated` separately indicates a node or result budget limit.
 
-After upgrading the plugin, if the tree still stops at a Compose host without content, use Jugg's full Gradle build and install the updated APK before collecting again. Restarting an old APK alone does not guarantee an updated in-app runtime. If diagnostics remain, keep the HTML and reported cause, and check the reported Compose runtime/tooling compatibility issue.
+After upgrading the plugin, if the tree still stops at a Compose host without content, use Jugg's full Gradle build and install the updated APK before collecting again. Restarting an old APK alone does not guarantee an updated in-app runtime. If diagnostics remain, keep the JSON and reported cause, and check the reported Compose runtime/tooling compatibility issue.
 
 ## Element location
 

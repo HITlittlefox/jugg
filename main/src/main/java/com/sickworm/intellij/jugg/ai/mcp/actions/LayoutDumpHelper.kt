@@ -30,7 +30,7 @@ internal object LayoutDumpHelper {
 
     /**
      * Execute a layout dump and return an MCP result.
-     * On success, result.data["file"] contains the absolute path to the written HTML file.
+     * On success, result.data["file"] contains the absolute path to the selected JSON artifact.
      */
     fun dump(
         runtime: IMcpRuntime,
@@ -38,8 +38,9 @@ internal object LayoutDumpHelper {
         rootLayout: String? = null,
         isIncludeGone: Boolean = false,
         isAllWindows: Boolean = false,
+        mode: String,
     ): McpToolResult {
-        return when (val output = dumpInternal(runtime, callerToolName, rootLayout, isIncludeGone, isAllWindows)) {
+        return when (val output = dumpInternal(runtime, callerToolName, rootLayout, isIncludeGone, isAllWindows, mode)) {
             is DumpInternalResult.Failure -> output.result
             is DumpInternalResult.Success -> output.toPublicResult()
         }
@@ -47,7 +48,7 @@ internal object LayoutDumpHelper {
 
     /**
      * Executes layout dump and keeps the structured JSON file available for internal tools.
-     * Public MCP output should use [dump] so agents only see the compact HTML artifact.
+     * Internal consumers default to UI mode so they always receive the captured tree.
      */
     fun dumpInternal(
         runtime: IMcpRuntime,
@@ -55,6 +56,7 @@ internal object LayoutDumpHelper {
         rootLayout: String? = null,
         isIncludeGone: Boolean = false,
         isAllWindows: Boolean = false,
+        mode: String = "ui",
     ): DumpInternalResult {
         val logger = runtime.logger.getInstance("LayoutDumpHelper")
 
@@ -90,8 +92,9 @@ internal object LayoutDumpHelper {
                 )
             }
 
-        val localJsonFile = File(toolDir, "layout_${System.currentTimeMillis()}.json")
-        val localHtmlFile = File(toolDir, "layout_${System.currentTimeMillis()}.html")
+        val timestamp = System.currentTimeMillis()
+        val localJsonFile = File(toolDir, "layout_$timestamp.json")
+        val outputFile = if (mode == "ui") localJsonFile else File(toolDir, "layout_${timestamp}_interaction.json")
 
         var successOutput: DumpInternalResult.Success? = null
         val result = McpAppReadyGuard.executeWithRuntimeObserveRetry {
@@ -135,20 +138,25 @@ internal object LayoutDumpHelper {
                     convertPxToDp(jsonElement, density)
                 }
 
-                // Keep intermediate JSON for internal consumers (e.g. FigmaLayoutVerify).
-                val convertedJson = jsonElement.toString()
-                localJsonFile.writeText(convertedJson, StandardCharsets.UTF_8)
+                val converter = LayoutJsonConverter()
+                val uiJson = converter.convert(jsonElement.asJsonObject, "ui")
+                val unit = if (density > 0) "dp" else "px"
+                uiJson.add("units", JsonObject().apply {
+                    addProperty("bounds", unit)
+                    addProperty("padding", unit)
+                })
+                // Keep the unpruned tree for internal consumers, regardless of public mode.
+                localJsonFile.writeText(uiJson.toString(), StandardCharsets.UTF_8)
+                val outputJson = if (mode == "ui") uiJson else converter.convert(uiJson, mode)
+                val content = outputJson.toString()
+                if (outputFile != localJsonFile) outputFile.writeText(content, StandardCharsets.UTF_8)
 
-                // Convert to HTML for the MCP artifact (better LLM information density).
-                val htmlContent = LayoutHtmlConverter().convert(jsonElement.asJsonObject)
-                localHtmlFile.writeText(htmlContent, StandardCharsets.UTF_8)
-
-                val summary = buildSummaryMessage(jsonElement)
-                val contentBytes = htmlContent.toByteArray(StandardCharsets.UTF_8).size
+                val summary = buildSummaryMessage(outputJson)
+                val contentBytes = content.toByteArray(StandardCharsets.UTF_8).size
                 val output = DumpInternalResult.Success(
                     summary = summary,
                     jsonFile = localJsonFile,
-                    htmlFile = localHtmlFile,
+                    outputFile = outputFile,
                     contentBytes = contentBytes,
                     warnings = jsonElement.asJsonObject.getAsJsonArrayOrEmpty("warnings")
                         .mapNotNull { it.asStringOrNull() },
@@ -167,7 +175,7 @@ internal object LayoutDumpHelper {
         data class Success(
             val summary: String,
             val jsonFile: File,
-            val htmlFile: File,
+            val outputFile: File,
             val contentBytes: Int,
             val warnings: List<String> = emptyList(),
         ) : DumpInternalResult()
@@ -180,10 +188,10 @@ internal object LayoutDumpHelper {
             status = McpToolStatus.OK,
             message = summary,
             data = linkedMapOf<String, Any>(
-                "file" to htmlFile.absolutePath,
+                "file" to outputFile.absolutePath,
                 "contentBytes" to contentBytes,
             ).apply { if (warnings.isNotEmpty()) put("warnings", warnings) },
-            artifacts = listOf(McpArtifact(type = "html", path = htmlFile.absolutePath)),
+            artifacts = listOf(McpArtifact(type = "json", path = outputFile.absolutePath)),
             errorCode = null,
         )
     }

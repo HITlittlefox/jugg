@@ -1,6 +1,6 @@
 # jugg CLI 参数与 MCP 映射
 
-> 最后核对：2026-08-27
+> 最后核对：2026-10-15
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -147,7 +147,7 @@ CLI 参数设计遵循“机械映射，不创造新语义”：
 | `restart` | `restart` | 重启 App |
 | `instrument` | `instrument` | 从 androidTest 源文件锚点运行测试 |
 | `status` | `status` | 查看部署状态、未编译文件摘要、androidTest baseline 与 compile 运行态 |
-| `layout-dump` | `layout-dump` | 导出 UI 层级 HTML |
+| `layout-dump` | `layout-dump` | 导出 interaction/ui 稀疏 JSON |
 | `view-locate` | `view-locate` | 查找元素位置、候选预算和源码位置 |
 | `view-inspect` | `view-inspect` | 反射读取 View 属性 |
 | `tap` | `tap` | 坐标、百分比或元素模式触控 |
@@ -270,17 +270,20 @@ jugg status [--refresh-changes <true|false>] [--full-info <true|false>]
 ### `layout-dump`
 
 ```text
-jugg layout-dump [--root-layout <nodeId>] [--include-gone] [--all-windows]
+jugg layout-dump [--mode <interaction|ui>] [--root-layout <nodeId>] [--include-gone] [--all-windows]
 ```
 
 | CLI flag | MCP 参数 | 说明 |
 |----------|----------|------|
+| `--mode` | `mode` | interaction（默认）裁剪交互摘要；ui 保留已采集树用于 UI 验证 |
 | `--root-layout` / `--rootLayout` | `rootLayout` | 跨窗口查找并只导出指定节点子树 |
 | `--include-gone` / `--includeGone` | `includeGone=true` | 包含 GONE 节点 |
 | `--all-windows` / `--allWindows` | `allWindows=true` | 导出所有窗口 |
 
-公开输出是 HTML artifact；内部 JSON 仅供布局验证的存量实现消费。
-App 侧所有 UI 查询和动作统一通过 Dragonfly 实时 snapshot；传统 Android View 与 Compose 节点保持原有 HTML/JSON 字段格式。Dragonfly 自带私有化 Kotlin/协程运行时，纯 Java 工程同样可用；Compose tooling 不兼容时由 Dragonfly 局部收口，不回退旧 ViewTree。5000 节点/60 层 snapshot 截断范围同时约束 dump、selector、tap、inspect 和 verify。
+公开输出为稀疏 JSON artifact，路径见 data.file。mode/units/windows/deviceInfo/truncated 和可选 warnings/rootLayout 随文件保留。interaction 删除无真实 ID、文本、描述、点击和诊断的非根节点并提升孩子；ui 保留采集层级。两模式保留输出节点的虚拟 ID 与非默认字段，缺省语义见 MCP 参数清单。
+
+按任务选择：未知页面交互用 interaction；布局、装饰节点、隐藏状态或辅助 UI 还原用 ui；已知 selector 直接 view-locate/tap；缺失属性使用 view-inspect。interaction 不证明不存在或真实父子关系；ui 不保证完整视觉还原。mode 不改变其他筛选参数，裁剪不标记预算 truncated；摘要统计实际输出节点。
+App 侧所有 UI 查询和动作统一通过 Dragonfly 实时 snapshot；传统 Android View 与 Compose 节点共享原有 JSON 节点字段。Dragonfly 自带私有化 Kotlin/协程运行时，纯 Java 工程同样可用；Compose tooling 不兼容时由 Dragonfly 局部收口，不回退旧 ViewTree。5000 节点/60 层 snapshot 截断范围同时约束 dump、selector、tap、inspect 和 verify。
 
 ### `view-locate`
 

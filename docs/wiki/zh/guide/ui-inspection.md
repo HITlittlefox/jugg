@@ -12,7 +12,7 @@ tags:
 
 Jugg 提供一组面向 Agent 和脚本的 UI 工具，用于导出当前 App 的 View 层级、定位元素、读取 View 属性，以及执行点击、长按、滑动等操作。
 
-这些工具走 App 进程内的 ViewHierarchy 通道，不是 uiautomator dump。公开产物优先是裁剪后的 HTML，方便 Agent 阅读和引用。
+这些工具走 App 进程内的 ViewHierarchy 通道，不是 uiautomator dump。公开产物为稀疏 JSON，可按用途选择交互摘要或保留已采集的 UI 层级。
 
 ## 前置条件
 
@@ -37,7 +37,8 @@ layout-dump
 ## 导出布局
 
 ```bash
-jugg layout-dump
+jugg layout-dump --mode interaction
+jugg layout-dump --mode ui
 jugg layout-dump --root-layout content
 jugg layout-dump --include-gone
 jugg layout-dump --all-windows
@@ -47,11 +48,14 @@ jugg layout-dump --all-windows
 
 | 参数 | 用途 |
 |---|---|
+| `--mode` | interaction（默认）用于浏览交互候选；ui 用于布局验证、状态排查和辅助还原 |
 | `--root-layout` | 只导出指定节点子树 |
 | `--include-gone` | 包含 GONE 节点 |
 | `--all-windows` | 导出所有窗口，而不是只看 top window |
 
-输出是 HTML artifact。内部 JSON 仅供 `view-locate`、`view-inspect` 和其它工具实现使用。
+输出为 JSON artifact，文件路径见 `data.file`。`interaction` 删除无真实 ID、文本、描述、点击行为或诊断的非根节点，并提升其子节点；`ui` 保留已采集的父子关系和装饰节点。两模式共享字段含义，保留输出节点的虚拟 ID 和非默认属性。
+
+模式不会自动改变窗口、子树、GONE 筛选或采集预算。布局验证使用 `ui`；辅助还原还需要截图、图片资源和源码等证据。
 
 ## 定位元素
 
@@ -110,11 +114,12 @@ jugg tap --x-percent 50 --y-percent 90
 
 ## Agent 使用建议
 
-- 先 `layout-dump`，再定位或点击。
+- 不熟悉页面时先用 `layout-dump --mode interaction`；已有 selector 时直接定位或元素点击。
+- 验证布局、隐藏状态或辅助还原时使用 `--mode ui`。interaction 的未出现节点和提升后的层级不能证明不存在或真实父子关系。
 - 对文本重复的按钮，优先加 `resource-id` 或 `class-name`。
 - 点击后用 `layout-dump`、`activity-stack` 或 `wait-logs` 验证结果。
 - 不要把隐藏节点当成点击目标；隐藏节点可用于属性检查，但不适合触控。
-- 所有 bounds / padding 坐标以 dp 表示，截图像素以 px 表示，两者需要按 density 换算。
+- 正常采集的 bounds / padding 以 dp 表示，文件 `units` 标明单位；截图像素以 px 表示，两者需要按 density 换算。
 
 ## 常见问题
 

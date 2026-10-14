@@ -1,6 +1,6 @@
 # MCP UI 布局验证设计
 
-> 最后核对：2026-10-14
+> 最后核对：2026-10-15
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -27,8 +27,8 @@ activity-stack
 | 类/接口 | 文件 | 作用 |
 |---------|------|------|
 | `McpToolActionRegistry` | `main/src/main/java/com/sickworm/intellij/jugg/ai/mcp/actions/McpToolActionRegistry.kt` | 公开工具注册表；判断 UI 工具是否真的可通过 MCP 调用的第一入口 |
-| `LayoutDumpMcpToolAction` | `main/src/main/java/com/sickworm/intellij/jugg/ai/mcp/actions/LayoutDumpMcpToolAction.kt` | 公开 `layout-dump`，导出 HTML 视图树 artifact |
-| `LayoutDumpHelper` | `main/src/main/java/com/sickworm/intellij/jugg/ai/mcp/actions/LayoutDumpHelper.kt` | 复用的内部 dump 能力；生成公开 HTML 和内部 JSON |
+| `LayoutDumpMcpToolAction` | `main/src/main/java/com/sickworm/intellij/jugg/ai/mcp/actions/LayoutDumpMcpToolAction.kt` | 公开 `layout-dump`，导出 interaction/ui 稀疏 JSON artifact |
+| `LayoutDumpHelper` | `main/src/main/java/com/sickworm/intellij/jugg/ai/mcp/actions/LayoutDumpHelper.kt` | 复用的内部 dump 能力；生成公开双模式 JSON 并保留内部未裁剪 JSON |
 | `UiFindMcpToolAction` | `main/src/main/java/com/sickworm/intellij/jugg/ai/mcp/actions/UiFindMcpToolAction.kt` | 公开 `view-locate`，将组合 selector、可见性和结果预算下沉到 App 侧实时查找 |
 | `EvalViewMcpToolAction` | `main/src/main/java/com/sickworm/intellij/jugg/ai/mcp/actions/EvalViewMcpToolAction.kt` | 公开 `view-inspect`，通过 App 内反射读取 getter 或 public 字段 |
 | `TapMcpToolAction` | `main/src/main/java/com/sickworm/intellij/jugg/ai/mcp/actions/TapMcpToolAction.kt` | 公开 `tap`，支持坐标、百分比和元素选择器模式 |
@@ -65,7 +65,7 @@ activity-stack
 layout-dump
   -> App 内 ViewHierarchy LocalSocket 调用 Dragonfly 提取 Android View + Compose 节点
   -> DragonflyHierarchySource 适配为原有 windows/root/children JSON
-  -> LayoutDumpHelper 输出 HTML artifact，并保留内部 JSON
+  -> LayoutDumpHelper 按 interaction/ui 输出 JSON artifact，内部消费者始终获得未裁剪 JSON
 view-locate
   -> 通过 ViewHierarchyClient 请求 App 侧实时 find_elements
   -> text/resourceId/contentDesc/className 非空字段使用 AND；className 支持完整名/simple name 精确匹配
@@ -77,7 +77,9 @@ view-inspect
   -> 返回 expression/value/type/density，并 Best-effort 返回 sourceFile/lineNumber
 ```
 
-间距与对齐目前由 Agent 根据 `view-locate` 返回的 dp bounds 计算：
+模式选择：未知页面查找交互候选使用 interaction；几何、结构、装饰节点或隐藏状态验证使用 ui。两模式保留输出节点虚拟 ID 和非默认属性；沿用稀疏默认值省略。裁剪不修改 truncated，摘要数量来自实际输出树。
+
+间距与对齐由 Agent 根据 ui dump 或 `view-locate` 返回的 dp bounds 计算：
 
 ```text
 horizontalSpacing = rightElement.left - leftElement.right
@@ -94,7 +96,7 @@ centerY           = (top + bottom) / 2
 
 Dragonfly 私有 Kotlin 不得改写宿主 Compose ABI。源码 JAR 中 `mapTree$default` 的 Function3 参数与回调工厂保留宿主类型，内置运行库定义继续全部私有化。若异常描述符中出现 `internal.dragonfly.runtime.kotlin.jvm.functions.Function3`，属于重定位错误，不能仅凭 `NoSuchMethodError` 判断为宿主 Compose 版本缺少方法；此问题从 Agent `1.0.84` 修正。
 
-Dragonfly 的 `error` / `warning` 属性写入节点 `message`，snapshot 聚合为可选 `warnings`。HTML 保留带诊断节点，并转义 `diagnostic` 属性；dump 仍输出有效 artifact，摘要标记 `incomplete hierarchy`。`truncated` 继续只表示预算截断。探测到宿主但没有提取内容时说明“可能为空或 tooling 不可用”，不据此断言 API 不兼容。
+Dragonfly 的 `error` / `warning` 属性写入节点 `message`，snapshot 聚合为可选 `warnings`。两模式均保留带诊断节点的 `message`；dump 仍输出有效 artifact，摘要标记 `incomplete hierarchy`。`truncated` 继续只表示预算截断。探测到宿主但没有提取内容时说明“可能为空或 tooling 不可用”，不据此断言 API 不兼容。
 
 查找命中有效内容时保留原有成功结果并附 `warnings`；未命中且当前窗口范围有诊断时，App 侧返回 `UI_HIERARCHY_INCOMPLETE:` 原因，IDE 映射为同名错误码，避免把不完整树当作 `ELEMENT_NOT_FOUND`。dump、find、inspect 和元素 tap 使用同一 snapshot 诊断；未发生诊断的结果不增加字段。升级后需完整 Gradle 构建安装新 APK，冷启动加载器与原现场页面结果仍需真机验收。
 
@@ -128,8 +130,8 @@ tap
 
 | 数据 | 来源 | 单位 / 语义 |
 |------|------|-------------|
-| `layout-dump` HTML | `LayoutDumpHelper` | 面向 Agent 阅读的公开 artifact |
-| 内部 layout JSON | `LayoutDumpHelper.dumpInternal()` | 仅供布局验证存量 action 内部消费，不作为公开 API |
+| `layout-dump` JSON | `LayoutDumpHelper` | interaction 裁剪页面摘要；ui 保留采集树；文件自包含 mode、units、窗口、deviceInfo、truncated 和可选 warnings/rootLayout |
+| 内部 layout JSON | `LayoutDumpHelper.dumpInternal()` | 供布局验证存量 action 消费，始终保留采集树；公开 JSON 应通过工具返回的 data.file 读取 |
 | `view-locate.data.bounds` | `UiFindMcpToolAction` | `[left, top, right, bottom]`，单位 dp |
 | `view-locate.data.matchCount` | App 侧 `find_elements` | selector 总命中数；大于 1 时不返回顶层首个节点坐标 |
 | `view-locate.data.returnedCount/truncated` | App 侧 `find_elements` | 实际返回候选数，以及是否被 `maxResults` 截断 |
@@ -145,7 +147,7 @@ tap
 | 约束 / 风险 | 影响 |
 |-------------|------|
 | 注册表是公开能力的唯一可靠入口 | action 类存在不代表 MCP 可调用；先看 `defaultActions()` / `tools/list` |
-| `layout-dump` 公开 HTML，不公开内部 JSON | Agent 不应依赖内部 JSON 文件路径作为稳定接口 |
+| interaction 裁剪节点并提升孩子，ui 保留采集树 | interaction 不能证明元素不存在或真实父子关系；ui 仍受窗口、GONE 筛选及预算限制，辅助还原不等于完整视觉还原 |
 | ViewHierarchy 是 App 内 LocalSocket Server-only | socket 不可用时不要假设会自动回退 uiautomator |
 | Dragonfly 窗口枚举有旧路径降级 | Dragonfly 返回空或枚举失败时，以 `ActivityThread` / `WindowManagerGlobal` Best-effort 补根窗口，节点仍由 Dragonfly 转换；这不是旧 ViewTree 数据源回退 |
 | Dragonfly 使用 Jugg 私有包名 | 源 DEX JAR 经离线 dex2jar + Jar Jar 预处理，Dragonfly API 与内置 Kotlin、coroutines、Guava、dexlib2 依赖统一进入 `com.sickworm.intellij.jugg.internal.dragonfly.**`，仅打入 APK 注入的 `jugg-runtime.jar`，由 App ClassLoader 加载；采集链不进入 bootstrap instruments；正式构建不执行重命名，避免宿主 App 同名类冲突 |
@@ -170,7 +172,7 @@ tap
 | 现象 | 优先入口 |
 |------|----------|
 | Agent 声称某 UI 工具可调用但运行返回 `TOOL_NOT_FOUND` | `McpToolActionRegistry.defaultActions()` 与 `08_mcp_tools_list.md` |
-| `view-locate` 找不到元素 | 检查 App 侧 `find_elements` selector；再用 `layout-dump` HTML 确认 text/id/contentDesc/className 与可见性 |
+| `view-locate` 找不到元素 | 检查 App 侧 `find_elements` selector；再用 `layout-dump --mode ui` JSON 确认 text/id/contentDesc/className 与可见性 |
 | `view-locate` 多命中或截断 | 查看 `matchCount/returnedCount/truncated/matches[]`，补充更稳定 selector；必要时调高 `maxResults` 到 `100` 以内 |
 | 坐标/间距看起来不对 | 检查 bounds 单位是否已是 dp；px 值只能经 `view-inspect.data.density` 换算 |
 | `view-inspect` getter 失败 | `EvalViewMcpToolAction` 白名单、App 侧 `ViewExpressionEvaluator` |

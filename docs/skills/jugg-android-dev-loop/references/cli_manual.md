@@ -175,7 +175,7 @@ python3 {SKILL_DIR}/scripts/jugg.py tap --x-percent 50 --y-percent 80 --action s
 |---------|---------|
 | `view-locate` | Find live element position, bounds, and source location |
 | `view-inspect` | Query View properties via reflection |
-| `layout-dump` | Dump full UI hierarchy to HTML |
+| `layout-dump` | Export sparse JSON in interaction or UI mode |
 
 ### `view-locate`
 
@@ -218,14 +218,26 @@ python3 {SKILL_DIR}/scripts/jugg.py view-inspect --resource-id bubble_container 
 
 ```
 python3 {SKILL_DIR}/scripts/jugg.py layout-dump
+python3 {SKILL_DIR}/scripts/jugg.py layout-dump --mode interaction           # browse interaction candidates (default)
+python3 {SKILL_DIR}/scripts/jugg.py layout-dump --mode ui                    # preserve captured hierarchy for UI validation
 python3 {SKILL_DIR}/scripts/jugg.py layout-dump --root-layout content_frame   # cross-window subtree (View resource name, not R.id.xxx)
 python3 {SKILL_DIR}/scripts/jugg.py layout-dump --include-gone                # include GONE views
 python3 {SKILL_DIR}/scripts/jugg.py layout-dump --all-windows                 # all windows (dialogs, popups)
 ```
 
-All app-side UI queries and actions use a fresh Dragonfly snapshot while keeping the existing HTML output. The 5000-node/60-level snapshot boundary also limits selectors, taps, inspections, and verification. Java-only projects return an explicit unsupported error. A Compose virtual ID remains stable only while Dragonfly traversal order and UI structure are unchanged. Compose element taps currently dispatch a MotionEvent at the node center rather than invoking a Semantics action.
+Output: `data.file` points to a sparse JSON artifact; `contentBytes` is its UTF-8 byte size. The file includes `mode`, `units` for bounds/padding, windows, device density, budget `truncated`, and optional `warnings`. Empty fields and defaults are omitted: visibility=visible, alpha=1, clickable=false, enabled=true, zero padding, and empty children. Missing textColor does not uniquely mean black: the collector also omits unavailable/default values.
 
-Output: HTML file with full UI hierarchy.
+| Task | Mode / tool |
+|---|---|
+| Browse an unfamiliar page and discover text, buttons, or navigation | `layout-dump --mode interaction` |
+| Validate geometry, spacing, original hierarchy, decorative nodes, or hidden state | `layout-dump --mode ui`; add `--include-gone` or `--all-windows` when needed |
+| Locate or tap a known selector | Call `view-locate` or element-mode `tap` directly |
+| Read properties absent from the dump, such as text size or background | `view-inspect` |
+| Recreate UI structure and geometry | `ui` plus available screenshots, assets, and source; the dump does not contain complete visual or source information |
+
+Interaction mode keeps window roots and nodes with real IDs, text, descriptions, clickability, or diagnostics; other nodes are removed and children are promoted. Retained nodes keep their virtual IDs and non-default attributes. This mode is a page summary, not a list of guaranteed actionable elements. Its absence and hierarchy cannot establish element absence or original parent-child relationships. Use a live query or UI mode for further evidence. Pruning does not set `truncated`.
+
+UI mode preserves the captured tree. Both modes retain the same field meanings, window/subtree scope, includeGone filtering, and collection limits. A truncated or incomplete tree cannot prove absence. All app-side UI queries and actions use fresh Dragonfly snapshots; collect fresh evidence after interaction. The 5000-node/60-level snapshot boundary also limits selectors, taps, inspections, and verification. Java-only projects are supported by the private runtime. A Compose virtual ID remains stable only while traversal order and UI structure are unchanged. Compose element taps dispatch a MotionEvent at the node center rather than invoking a Semantics action.
 
 ---
 

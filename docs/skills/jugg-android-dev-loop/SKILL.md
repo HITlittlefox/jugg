@@ -1,7 +1,7 @@
 ---
 name: jugg-android-dev-loop
-version: 1.0.32
-date: 2026-10-14
+version: 1.0.34
+date: 2026-10-15
 description: >-
   Use when editing source files (Java/Kotlin/XML/layout/AndroidManifest/Gradle)
   in a Android project, or when user asks to build/deploy/verify an Android app.
@@ -131,7 +131,7 @@ python3 {SKILL_DIR}/scripts/jugg.py wait-logs --marker '<regex>' [--tags t1,t2] 
 
 ### UI Commands (low-frequency)
 
-For UI interaction/inspection (tap, view-locate, view-inspect, layout-dump) → load `references/cli_manual.md`.
+For UI interaction/inspection (tap, view-locate, view-inspect, layout-dump) → read the relevant command sections in `references/cli_manual.md`.
 
 ## Build Fallback Chain
 

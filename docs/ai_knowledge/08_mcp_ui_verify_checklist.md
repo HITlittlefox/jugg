@@ -1,6 +1,6 @@
 # MCP UI 验证执行情况检查清单
 
-> 最后核对：2026-08-21
+> 最后核对：2026-10-15
 > 依据：`08_mcp_layout_verify_design.md`、`08_mcp_tools_list.md` 与当前 `McpToolActionRegistry.defaultActions()`。
 > 用于验收 Agent 是否按当前公开 MCP 工具完成 UI 证据采集。每条问题要求给出事实回答；未遵守时说明原因。
 
@@ -20,9 +20,9 @@
 
 ## C. Actual Value 证据
 
-7. 元素位置、大小、间距、对齐是否来自 `view-locate` 的 `bounds` / `size`，而不是目测？
+7. 元素位置、大小、间距、对齐是否来自 `layout-dump --mode ui` 的 bounds 或 `view-locate` 的 `bounds` / `size`，而不是目测？
 8. View 内部属性（颜色、字号、maxLines、ellipsize、enabled、clickable 等）是否来自 `view-inspect` 的 getter 输出？
-9. 全局结构或 selector 失败时，是否用 `layout-dump` HTML 查找候选节点，而不是直接标记跳过？
+9. 全局结构或 selector 失败时，是否用 `layout-dump --mode ui` JSON 保留采集层级并检查候选节点，而不是直接标记跳过？浏览交互候选可用默认 interaction，但其裁剪结果不能证明不存在或真实父子关系。
 10. 需要运行时闭环时，是否用 `wait-logs` 的 `marker` / `crash` / `timeout` 结果支撑结论？
 
 ## D. Selector 与多命中

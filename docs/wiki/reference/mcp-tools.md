@@ -55,7 +55,7 @@ There are currently 18 registered public MCP tools.
 | `get-compile-status` | `projectDir`, `jobId`, `waitTimeoutMs` | Queries the status of an asynchronous compilation task. |
 | `ssh-info` | `projectDir`, `reason`, `requestedBy` | Requests remote SSH troubleshooting information. |
 | `devices` | `projectDir` | Lists devices and marks the selected device. |
-| `layout-dump` | `projectDir`, `rootLayout`, `includeGone`, `allWindows` | Exports the UI hierarchy as HTML. |
+| `layout-dump` | `projectDir`, `mode`, `rootLayout`, `includeGone`, `allWindows` | Exports interaction/ui sparse JSON. |
 | `view-locate` | `projectDir`, `target` | Finds the location of a UI element. |
 | `view-inspect` | `projectDir`, `target`, `expressions` | Reads read-only View properties through reflection, including getters, Kotlin properties, and public fields. |
 | `activity-stack` | `projectDir` | Reads the Activity stack. |
@@ -94,7 +94,7 @@ Continue until `data.status` is `success`, `failed`, `canceled`, or `unknown`. T
 
 | Tool | Key boundaries |
 |---|---|
-| `layout-dump` | Outputs an HTML artifact. The internal JSON is not part of the public contract. |
+| `layout-dump` | Outputs a JSON artifact. mode=interaction (default) prunes a summary; mode=ui preserves the captured tree. Invalid mode returns INVALID_PARAMS. |
 | `view-locate` | Coordinates and dimensions use dp. When multiple elements match, the first result is not a safe click target. |
 | `view-inspect` | Allows only read-only expressions. An explicit `foo()` uses the getter/query allowlist. A name without parentheses reads a public field first, then resolves `getXxx()` / `isXxx()`. |
 | `tap` | Mode priority is coordinate > percent > element. It does not act when multiple elements match. |
@@ -102,7 +102,9 @@ Continue until `data.status` is `success`, `failed`, `canceled`, or `unknown`. T
 
 ViewHierarchy tools wait for the app to be online before running. A screen that is off or locked returns `DEVICE_NOT_INTERACTIVE`. If the target app is not in the foreground, they return `APP_NOT_FOREGROUND`.
 
-If part of the UI hierarchy cannot be extracted, `layout-dump` preserves valid HTML and marks its summary with `incomplete hierarchy`. Optional `data.warnings` and HTML node diagnostics give the cause. Location, inspection, and element input still return results for valid matches, along with diagnostics. If there is no match and the current window's hierarchy is incomplete, they return `UI_HIERARCHY_INCOMPLETE`. Budget limits continue to use `truncated` separately. For recovery steps, see [UI automation](../capabilities/tools/ui-automation.md#when-compose-content-is-missing).
+The file contains mode, units, windows, deviceInfo, truncated, and optional warnings/rootLayout. Bounds/padding normally use integer dp; without valid density, px is retained and declared in units. Empty values and defaults visibility=visible, alpha=1, clickable=false, enabled=true, zero padding, and empty children are omitted. Missing textColor can also mean uncollected or default values. The summary counts actual output nodes; pruning does not set budget truncated.
+
+If part of the UI hierarchy cannot be extracted, `layout-dump` preserves valid JSON and marks its summary with `incomplete hierarchy`. Optional `data.warnings` and JSON node diagnostics give the cause. Location, inspection, and element input still return results for valid matches, along with diagnostics. If there is no match and the current window's hierarchy is incomplete, they return `UI_HIERARCHY_INCOMPLETE`. Budget limits continue to use `truncated` separately. For recovery steps, see [UI automation](../capabilities/tools/ui-automation.md#when-compose-content-is-missing).
 
 ## Common error codes
 

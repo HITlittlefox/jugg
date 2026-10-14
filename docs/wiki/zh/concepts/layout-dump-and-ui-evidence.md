@@ -1,6 +1,6 @@
 ---
 title: 布局 dump 与 UI 证据
-description: 解释 layout-dump 如何从 App 内即时视图快照生成 HTML 证据，以及结构、属性、单位和快照时效的边界。
+description: 解释 layout-dump 如何从 App 内即时视图快照生成双模式 JSON 证据，以及结构、属性、单位和快照时效的边界。
 status: active
 tags:
   - concept
@@ -12,7 +12,7 @@ tags:
 
 UI 判断需要同时说明预期是什么，以及设备当前实际呈现了什么。截图记录页面的像素外观，视图树则提供节点身份、层级、文本、bounds 和部分运行时属性；两类证据回答的问题不同，不能互相替代。
 
-Jugg 的 `layout-dump` 从运行中 App 内采集当前视图层级，将 Android View 与 Compose 节点整理成可阅读的 HTML artifact。这个产物代表一次请求发生时的页面快照，用于说明实际页面结构；它本身不提供设计预期，也不等于最终的通过或失败结论。
+Jugg 的 `layout-dump` 从运行中 App 内采集当前视图层级，将 Android View 与 Compose 节点整理成稀疏 JSON artifact。这个产物代表一次请求发生时的页面快照，用于说明实际页面结构；它本身不提供设计预期，也不等于最终的通过或失败结论。
 
 ## 像素外观与视图结构回答不同问题
 
@@ -36,26 +36,30 @@ Jugg 不从系统级 uiautomator dump 读取页面，而是连接目标 App 内�
   -> 采集当前窗口的 Android View 与 Compose 节点
   -> 整理窗口、层级、文本、ID 和 bounds
   -> 按设备 density 将节点 bounds / padding 从 px 换算为 dp
-  -> 裁剪缺少语义内容的结构节点
-  -> 写入 HTML artifact
+  -> 按 interaction 裁剪摘要，或按 ui 保留已采集树
+  -> 写入 JSON artifact
 ```
 
-公开结果提供 HTML 文件路径、artifact 信息和内容大小。用于生成 HTML 的结构化数据只供 Jugg 内部工具消费，不作为稳定的公开接口。
+公开结果提供 JSON 文件路径、artifact 信息和 UTF-8 内容大小。文件携带 mode、units、窗口、设备密度、预算 truncated 和可选 warnings/rootLayout，可独立读取本次采集范围与诊断。摘要统计实际输出节点。
 
-## HTML 是阅读产物，不是完整数据接口
+## 交互摘要与 UI 层级采用不同节点范围
 
-HTML 的目标是让 Agent 和开发者快速阅读页面结构、查找候选节点并引用本轮证据。为了控制信息量，它会省略没有文本、ID、描述或其他有效语义的中间结构节点，因此 HTML 不是 App 原始视图对象的逐字段镜像。
+interaction（默认）用于浏览页面并发现交互候选：保留窗口根节点，以及具有真实 ID、文本、描述、点击行为或诊断的节点；其他节点被删除，孩子提升到保留的祖先。无语义的图片等叶节点也可能省略，所以摘要不能证明元素不存在或真实父子关系，也不保证输出节点都可点击。
+
+ui 保留当前已采集树，用于几何、父子结构、装饰节点和隐藏状态验证。它提供辅助还原所需的结构与文案，但完整视觉或源码还原还需要图片、字体、绘制效果和源码等信息。两模式均受窗口、子树、GONE 筛选和采集预算限制；主动裁剪不设置 truncated。
+
+两模式共享字段含义，保留输出节点的虚拟 ID 与非默认属性。空值和默认状态省略，以控制信息量。
 
 不同证据由不同方式取得：
 
 | 要回答的问题 | 证据来源 |
 |---|---|
-| 当前有哪些窗口、节点和父子关系 | `layout-dump` 的 HTML 快照 |
+| 当前有哪些窗口、节点和父子关系 | `layout-dump --mode ui` 的 JSON 快照 |
 | 元素是否存在，以及 bounds、position 和 size | `view-locate` 的几何结果 |
 | 文本颜色、可见性、enabled 等运行时属性 | `view-inspect` 的 getter 结果 |
 | 交互后页面是否发生预期变化 | 交互前后的新快照或运行时证据 |
 
-`view-locate` 返回适合计算间距和对齐的结构数据；`view-inspect` 返回 getter 原始值。二者用于补充 HTML 中没有直接表达的精确信息，而不是把内部布局 JSON 暴露为公共协议。
+`view-locate` 返回适合计算间距和对齐的结构数据；`view-inspect` 返回 getter 原始值。二者用于实时定位和补充 dump 未覆盖的属性。已知 selector 时可以直接查询或元素点击，无需先读取整份 dump。
 
 ## 每个请求都有自己的时间点
 
@@ -73,7 +77,7 @@ App 侧视图结构携带设备 density。Jugg 会递归转换普通 View 与 Co
 dp = px / density
 ```
 
-`layout-dump` 中的节点几何信息，以及 `view-locate` 返回的 bounds、position 和 size，都使用 dp。Agent 可以直接用这些值计算元素间距、中心点和对齐关系。
+正常采集的 `layout-dump` 节点几何信息，以及 `view-locate` 返回的 bounds、position 和 size，使用 dp。dump 取整数 dp；缺少有效 density 时保留 px，并由文件 units 明示。Agent 应确认单位后计算元素间距、中心点和对齐关系。
 
 `view-inspect` 返回 getter 的原始值，并同时返回 density。某个 getter 返回 px、sp、颜色整数还是业务对象，取决于该属性本身；使用前需要按对应 Android API 语义解释，不能因为布局 bounds 使用 dp，就把所有 getter 结果或触控坐标都视为 dp。
 

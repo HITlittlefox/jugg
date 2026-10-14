@@ -1,6 +1,6 @@
 # MCP Tools 参数清单
 
-> 最后核对：2026-08-21
+> 最后核对：2026-10-15
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -196,26 +196,30 @@
 
 ### `layout-dump`
 
-导出 UI 层级。公开输出为 HTML 格式（`data.file`）；结构化 JSON 仅保留为 `LayoutDumpHelper.dumpInternal()` 的工具内部实现细节，不暴露给 Agent。
+导出 UI 层级稀疏 JSON（`data.file`，artifact.type=json）。`mode=interaction`（默认）用于浏览交互候选；`mode=ui` 保留采集树用于 UI 验证、状态排查和辅助还原。两种模式均不内联大树，`contentBytes` 为文件 UTF-8 字节数。
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `projectDir` | string | **是** | 项目绝对路径 |
+| `mode` | string | 否 | interaction（默认）或 ui；非法值返回 INVALID_PARAMS |
 | `rootLayout` | string | 否 | 节点 id，仅返回该子树（推荐 short id，如 `"content"`）；指定后自动跨窗口查找 |
 | `includeGone` | boolean | 否 | `true` 时包含 GONE 节点（默认 `false`） |
 | `allWindows` | boolean | 否 | `true` 时导出所有窗口（默认 `false`，仅 top window） |
 
 **行为要点**：
+- 文件自包含 mode、units、windows、deviceInfo、truncated 和可选 warnings/rootLayout。摘要统计实际输出节点；主动裁剪不修改预算 truncated。
+- 两模式共享稀疏字段：空值和默认 visibility=visible、alpha=1、clickable=false、enabled=true、全零 padding、空 children 省略；textColor 缺失不唯一表示黑色，采集层也会省略未知/默认值。className 和资源 id 已简写。
+- mode 不改变 rootLayout、includeGone、allWindows 或采集预算；ui 仅保留当前采集范围，缺少完整视觉资源与绘制效果，不能保证像素或源码还原。
 - 走 App 进程内 `ViewHierarchyServer`（LocalSocket），**不回退 uiautomator**。
-- App 侧节点数据源为 Dragonfly；传统 Android View 与 Compose 节点统一适配为原有 `windows/root/children` JSON，保留原有结构，可选增加 `warnings`；带诊断节点的 HTML 保留转义后的 `diagnostic` 属性。Dragonfly 无法枚举窗口时，窗口根列表 Best-effort 降级到旧 `ActivityThread` / `WindowManagerGlobal` 反射路径，根节点仍交给 Dragonfly 提取。
-- HTML 侧虚拟节点裁剪：无语义内容的结构性节点自动裁剪。
+- App 侧节点数据源为 Dragonfly；传统 Android View 与 Compose 节点统一适配为原有 `windows/root/children` JSON，保留原有结构，可选增加 `warnings`；两模式均保留节点 `message` 诊断。Dragonfly 无法枚举窗口时，窗口根列表 Best-effort 降级到旧 `ActivityThread` / `WindowManagerGlobal` 反射路径，根节点仍交给 Dragonfly 提取。
+- interaction 沿用原 HTML 裁剪：窗口根节点永远保留；其他节点若无真实 ID、text、contentDesc、clickable 或 message 则删除并提升其孩子（包括无语义叶节点）。保留节点的虚拟 ID 与非默认属性不再丢弃。该模式不证明元素不存在、真实父子关系或可点击。ui 不执行这项裁剪。
 - Jugg snapshot 剪枝：`MAX_DEPTH=60`，`MAX_NODE_COUNT=5000`。限制作用于 Dragonfly 返回后的标准化阶段，dump、selector、tap、inspect、verify 都只能访问该范围；超限时 `truncated:true`。若 Dragonfly 原始提取阶段先失败，则无法返回 `truncated:true`。
-- 所有 `bounds`/`padding` 单位为 dp（`dp = (int)(px / density)`）。
+- 正常采集的 `bounds`/`padding` 单位为整数 dp（`dp = (int)(px / density)`）；文件 `units.bounds/padding` 明示单位。旧/异常 payload 缺少有效 density 时保留 px 并标明 px。
 - 虚拟 ID 格式 `_vir_id_<hash>`；Dragonfly window/children 遍历顺序和 UI 结构不变时跨请求一致，可用于后续 selector，但不保证列表重排或页面重组后仍指向同一业务节点。
 - `className` 仅保留简单类名；`id` 去掉包名前缀。
 - Kuikly 框架控件（`KRRichTextView` 等）text 通过 `KuiklyViewResolver` 反射提取。
 - ViewHierarchy 与私有 Dragonfly 仅在注入 APK 的 runtime 中定义，由 App ClassLoader 加载；更新插件后需完整 Gradle 构建安装新 APK，单纯重启旧 APK 不保证更新。首次启用 Compose 后异步让出一帧再采集，不阻塞主线程等待。
-- 局部提取错误/警告保留在节点 `message` 和结果可选 `warnings`，dump 保留有效 HTML 并在摘要标记 `incomplete hierarchy`。成功的 locate/inspect/元素 tap 仍可使用有效内容并携带诊断；未命中且当前窗口采集不完整时返回 `UI_HIERARCHY_INCOMPLETE`，不可据此断言元素不存在。预算 `truncated` 与采集诊断分别报告。
+- 局部提取错误/警告保留在节点 `message` 和结果可选 `warnings`，dump 保留有效 JSON 并在摘要标记 `incomplete hierarchy`。成功的 locate/inspect/元素 tap 仍可使用有效内容并携带诊断；未命中且当前窗口采集不完整时返回 `UI_HIERARCHY_INCOMPLETE`，不可据此断言元素不存在。预算 `truncated` 与采集诊断分别报告。
 - Dragonfly 自带私有化 Kotlin/协程运行时，纯 Java 工程不再因缺少宿主 Kotlin 而返回 `FEATURE_NOT_SUPPORTED`。Compose runtime/tooling 不兼容时由 Dragonfly 局部收口，不切换到旧节点数据源。
 - socket 不可连时：先 `restart` 一次 → 若仍失败 `gradle-build` → `deploy` → `restart` → 重试。
 

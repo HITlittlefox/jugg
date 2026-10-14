@@ -12,7 +12,7 @@ tags:
 
 Jugg provides UI tools for agents and scripts to export the current app's View hierarchy, locate elements, read View properties, and perform taps, long presses, swipes, and other actions.
 
-These tools use the in-process ViewHierarchy channel rather than a uiautomator dump. Public artifacts are primarily trimmed HTML so agents can read and reference them efficiently.
+These tools use the in-process ViewHierarchy channel rather than a uiautomator dump. Public artifacts use sparse JSON, with a choice between an interaction summary and the captured UI hierarchy.
 
 ## Prerequisites
 
@@ -37,7 +37,8 @@ Do not guess coordinates without evidence. Prefer an element selector, then coor
 ## Export a layout
 
 ```bash
-jugg layout-dump
+jugg layout-dump --mode interaction
+jugg layout-dump --mode ui
 jugg layout-dump --root-layout content
 jugg layout-dump --include-gone
 jugg layout-dump --all-windows
@@ -47,11 +48,14 @@ Common arguments:
 
 | Argument | Purpose |
 |---|---|
+| `--mode` | interaction (default) browses interaction candidates; ui supports layout validation, state investigation, and reconstruction references |
 | `--root-layout` | Export only the subtree of the specified node |
 | `--include-gone` | Include GONE nodes |
 | `--all-windows` | Export all windows instead of only the top window |
 
-The output is an HTML artifact. Internal JSON is used only by `view-locate`, `view-inspect`, and other tool implementations.
+The output is a JSON artifact at `data.file`. `interaction` removes non-root nodes without real IDs, text, descriptions, clickability, or diagnostics and promotes their children. `ui` preserves captured parent-child relationships and decorative nodes. Both modes share field meanings and retain output nodes' virtual IDs and non-default attributes.
+
+The mode does not automatically change window, subtree, GONE filtering, or collection budgets. Use `ui` for layout validation; reconstruction references also require evidence such as screenshots, image assets, and source.
 
 ## Locate an element
 
@@ -110,11 +114,12 @@ jugg tap --x-percent 50 --y-percent 90
 
 ## Recommendations for agents
 
-- Run `layout-dump` before locating or tapping an element.
+- Browse an unfamiliar page with `layout-dump --mode interaction`; for a known selector, locate or tap the element directly.
+- Use `--mode ui` for layout validation, hidden-state investigation, or reconstruction references. Missing nodes and promoted hierarchy in interaction mode cannot establish absence or original parent-child relationships.
 - For buttons with duplicate text, add `resource-id` or `class-name` when possible.
 - After a tap, verify the result with `layout-dump`, `activity-stack`, or `wait-logs`.
 - Do not tap hidden nodes. They can be inspected for properties but are not suitable touch targets.
-- All bounds / padding coordinates use dp, while screenshot pixels use px. Convert them using density.
+- Normally captured bounds / padding use dp, with units declared in the file's `units`; screenshot pixels use px. Convert them using density.
 
 ## Common problems
 
