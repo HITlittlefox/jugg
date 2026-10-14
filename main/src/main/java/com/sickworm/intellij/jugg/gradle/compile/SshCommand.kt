@@ -113,7 +113,9 @@ class SyncFileCommand(
                 .replace("--include='/build", "--include='$buildDirPath")
                 .replace("--exclude='/build", "--exclude='$buildDirPath")
             val userExcludeArguments = buildExcludeArguments(excludePatterns)
-            return "-av --delete $configDirArguments --exclude='build/' $userExcludeArguments"
+            // Copy resources mapped outside the transfer tree (e.g. Repo linkfiles); the boundary is
+            // the rsync transfer root, not the project root. Internal relative links stay as links.
+            return "-av --copy-unsafe-links --delete $configDirArguments --exclude='build/' $userExcludeArguments"
         }
 
         private fun buildExcludeArguments(excludePatterns: List<String>): String {
