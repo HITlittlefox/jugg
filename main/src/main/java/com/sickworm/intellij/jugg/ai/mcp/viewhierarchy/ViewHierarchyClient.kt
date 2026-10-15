@@ -682,6 +682,7 @@ open class ViewHierarchyClient(
         private val PACKAGE_NAME_PATTERN = Regex("^[A-Za-z0-9_.]+$")
         private val WHITESPACE_REGEX = Regex("\\s+")
         private const val CONNECT_TIMEOUT_MS = 500
-        private const val REQUEST_TIMEOUT_MS = 1_000
+        // Cover the server's 10-second main-thread deadline plus response transport time.
+        private const val REQUEST_TIMEOUT_MS = 12_000
     }
 }

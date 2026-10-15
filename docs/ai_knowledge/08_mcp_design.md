@@ -110,6 +110,7 @@ compile/deploy/gradle-build/instrument
 - Android 节点继续使用 Dragonfly 暴露的原始 View 执行 `performClick` / getter；Compose 节点当前以 bounds 中心 MotionEvent 点击，并对 Dragonfly 节点对象执行 getter，缺失能力返回明确错误。
 - 无 id 节点使用确定性 `_vir_id_<hash>`；只有 Dragonfly window/children 顺序与 UI 结构不变时才保证跨请求一致，不作为业务稳定身份。
 - 多进程场景按“主进程优先 -> 其余 PID -> `jugg_vh` 兼容名”尝试 socket。
+- 客户端 socket 读取超时为 12 秒，覆盖 App 侧 10 秒主线程操作期限并预留响应传输时间；服务端操作超时仍按原协议返回具体错误。
 - `ElementFinder` 在 selector 命中前过滤不可操作节点：可见、已显示、非零尺寸、有效 bounds。
 - ViewHierarchy socket 响应包含 `version`；当前客户端为 warn-only，版本不匹配只告警。
 - Breaking change（字段删除、类型变更、语义不兼容）必须递增服务端协议版本，并同步客户端常量与文档。
