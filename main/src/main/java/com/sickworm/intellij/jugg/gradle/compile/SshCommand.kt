@@ -161,6 +161,7 @@ open class CompileProjectCommand(
             }
             suffix += ConfigurationCacheCompatHelper.getDisableArgsIfEnabled(
                 File(localProjectPath), compileCommand, logger)
+            suffix += GradleDaemonArgHelper.getDisableArgsIfEnabled(compileCommand)
             suffix += buildTarget.gradlePropertyArgument()
             suffix += libraryTestTasksGradlePropertyArgument()
             suffix += " $injectParam"

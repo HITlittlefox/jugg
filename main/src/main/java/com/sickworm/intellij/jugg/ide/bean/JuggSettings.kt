@@ -43,6 +43,9 @@ object JuggSettings {
 
     var isEmbeddedToApk: Boolean by propertiesComponent.delegate(defaultValue = false)
 
+    /** Whether to append --no-daemon when running Gradle fallback compile */
+    var isGradleCompileNoDaemon: Boolean by propertiesComponent.delegate(defaultValue = true)
+
     // Run options end
 
     /** whether check checksum to make sure file is really change when file changes */

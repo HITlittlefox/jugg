@@ -63,4 +63,25 @@ class JuggSettingsTest {
             properties.setValue(historyKey, oldHistory)
         }
     }
+
+    @Test
+    fun `isGradleCompileNoDaemon should default to true and persist changes`() {
+        TestGlobal.init()
+        val properties = PropertiesComponent.getInstance()
+        val settingKey = "jugg.isGradleCompileNoDaemon"
+        val oldValue = properties.getValue(settingKey)
+        properties.unsetValue(settingKey)
+        try {
+            assertTrue(JuggSettings.isGradleCompileNoDaemon)
+            JuggSettings.isGradleCompileNoDaemon = false
+            assertEquals(false, JuggSettings.isGradleCompileNoDaemon)
+            assertEquals("false", properties.getValue(settingKey))
+        } finally {
+            if (oldValue != null) {
+                properties.setValue(settingKey, oldValue)
+            } else {
+                properties.unsetValue(settingKey)
+            }
+        }
+    }
 }

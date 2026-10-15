@@ -141,6 +141,7 @@ open class JuggControlPanelController(
             Setting.EMBED_APK -> return updateEmbeddedToApk(enabled)
             Setting.PROJECT_KOTLIN -> JuggSettings.isUseProjectKotlinCompiler = enabled
             Setting.BACKUP_CLASSPATH -> return updateBackupClasspath(enabled)
+            Setting.GRADLE_COMPILE_NO_DAEMON -> JuggSettings.isGradleCompileNoDaemon = enabled
         }
         model.updateSettings(currentSettings())
         recordSettingChanged(setting.displayName, enabled)
@@ -328,6 +329,7 @@ open class JuggControlPanelController(
             embedChangesIntoApk = JuggSettings.isEmbeddedToApk,
             useProjectKotlinCompiler = JuggSettings.isUseProjectKotlinCompiler,
             backupClasspath = JuggSettings.isEnableBackupClasspath,
+            gradleCompileNoDaemon = JuggSettings.isGradleCompileNoDaemon,
             isInjectGradleCompileEnabled = JuggSettings.isEnableInjectGradleCompile,
             canUseBackupClasspath = JuggSettings.isCanUseBackupClasspath,
             forceCompatDevices = model.snapshot().settings.forceCompatDevices,
@@ -411,5 +413,6 @@ open class JuggControlPanelController(
         EMBED_APK("Embed changes into APK"),
         PROJECT_KOTLIN("Project Kotlin compiler"),
         BACKUP_CLASSPATH("Backup classpath"),
+        GRADLE_COMPILE_NO_DAEMON("Gradle compile no daemon"),
     }
 }

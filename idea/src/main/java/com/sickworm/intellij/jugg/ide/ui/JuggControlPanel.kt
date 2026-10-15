@@ -368,7 +368,8 @@ class JuggControlPanel(
                 forceCompatDevicesPanel),
             settingGroup("Compiler", "compiler",
                 settingToggle("Use project Kotlin compiler", "Matches the compiler configured by the project.", JuggControlPanelController.Setting.PROJECT_KOTLIN),
-                settingToggle("Backup classpath", "May improve recovery at the cost of extra storage.", JuggControlPanelController.Setting.BACKUP_CLASSPATH)),
+                settingToggle("Backup classpath", "May improve recovery at the cost of extra storage.", JuggControlPanelController.Setting.BACKUP_CLASSPATH),
+                settingToggle("Gradle fallback compile no daemon", "Adds --no-daemon to Gradle fallback compile commands.", JuggControlPanelController.Setting.GRADLE_COMPILE_NO_DAEMON)),
             settingGroup("Integrations", "integrations",
                 settingAction("Install CLI and agent skills", "Install the Jugg CLI, agent skills, hooks, and required permissions.", "Install…", controller::installSkills),
                 settingAction("Check Jugg updates", "Check whether a newer Jugg plugin is available.", "Check now", controller::checkUpdates),
@@ -731,6 +732,7 @@ class JuggControlPanel(
             JuggControlPanelController.Setting.EMBED_APK to settings.embedChangesIntoApk,
             JuggControlPanelController.Setting.PROJECT_KOTLIN to settings.useProjectKotlinCompiler,
             JuggControlPanelController.Setting.BACKUP_CLASSPATH to settings.backupClasspath,
+            JuggControlPanelController.Setting.GRADLE_COMPILE_NO_DAEMON to settings.gradleCompileNoDaemon,
         )
         isRenderingSettings = true
         values.forEach { (setting, enabled) -> settingToggles[setting]?.isSelected = enabled }

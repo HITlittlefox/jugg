@@ -263,6 +263,7 @@ class JuggControlPanelModel(
         val embedChangesIntoApk: Boolean = false,
         val useProjectKotlinCompiler: Boolean = true,
         val backupClasspath: Boolean = false,
+        val gradleCompileNoDaemon: Boolean = true,
         val isInjectGradleCompileEnabled: Boolean = true,
         val canUseBackupClasspath: Boolean = false,
         val forceCompatDevices: List<ForceCompatDevice> = emptyList(),
