@@ -40,7 +40,7 @@ layout-dump
 jugg layout-dump --mode interaction
 jugg layout-dump --mode ui
 jugg layout-dump --root-layout content
-jugg layout-dump --include-gone
+jugg layout-dump --mode ui --include-gone
 jugg layout-dump --all-windows
 ```
 
@@ -50,10 +50,12 @@ jugg layout-dump --all-windows
 |---|---|
 | `--mode` | interaction（默认）用于浏览交互候选；ui 用于布局验证、状态排查和辅助还原 |
 | `--root-layout` | 只导出指定节点子树 |
-| `--include-gone` | 包含 GONE 节点 |
+| `--include-gone` | ui 模式包含 GONE 节点；interaction 仍删除隐藏子树 |
 | `--all-windows` | 导出所有窗口，而不是只看 top window |
 
-输出为 JSON artifact，文件路径见 `data.file`。`interaction` 删除无真实 ID、文本、描述、点击行为或诊断的非根节点，并提升其子节点；`ui` 保留已采集的父子关系和装饰节点。两模式共享字段含义，保留输出节点的虚拟 ID 和非默认属性。
+输出为 JSON artifact，文件路径见 `data.file`。`interaction` 在未命中窗口外保留规则时，删除无真实 ID、文本、描述、点击行为或诊断的非根节点，并提升其子节点；`ui` 保留已采集的父子关系和装饰节点。两模式使用相同的字段含义，公开虚拟 ID 简写为 `_vid_<hash>`；旧 `_vir_id_` selector 仍可使用。interaction 先删除 invisible/gone 节点及整个子树（不会提升孩子，`--include-gone` 也不例外），省略 `padding`、`textColor`，并保留 className。ui 在请求的采集范围内保留隐藏节点和视觉字段；GONE 节点仍需 `--include-gone`。
+
+interaction 用 `jugg_details` 伪子节点提示窗口外后代已省略；它不是可点击控件。需要展开时使用 `jugg layout-dump --mode ui --root-layout <id>`。子树请求不做窗口外折叠，部分可见或含窗口内后代、未知几何后代、诊断后代的分支也保留展开。规则与边界见[布局 dump 与 UI 证据](../concepts/layout-dump-and-ui-evidence.md#交互摘要与-ui-层级采用不同节点范围)。
 
 模式不会自动改变窗口、子树、GONE 筛选或采集预算。布局验证使用 `ui`；辅助还原还需要截图、图片资源和源码等证据。
 

@@ -66,7 +66,7 @@ McpToolAction
 
 业务失败不应被客户端当作协议失败；Agent 判断命令是否成功时必须读取 `structuredContent.status` 和对应业务字段。
 
-`layout-dump` 的文件不超过 16 KiB 时，完整对象随 `structuredContent.data.layout` 返回，文本 content 保持摘要，不复制整棵树。CLI 读取 structuredContent 并保留 Unicode 输出；大结果继续只返回文件路径、字节数与摘要，文件按节点换行供局部读取。
+`layout-dump` 的文件不超过 16 KiB 时，完整对象随 `structuredContent.data.layout` 返回，文本 content 保持摘要，不复制整棵树。CLI 读取 structuredContent 并保留 Unicode 输出；大结果继续只返回文件路径、字节数与摘要，真实节点按节点换行供局部读取；jugg_details 伪节点行内显示，真实 children 数组在开闭括号前换行。
 
 ---
 
@@ -106,11 +106,11 @@ compile/deploy/gradle-build/instrument
 
 ## 7. ViewHierarchy 与 UI 工具约束
 
-- `layout-dump` 公开稀疏 JSON artifact，`mode=interaction|ui`（默认 interaction）。interaction 沿用原 HTML 节点裁剪与提升，ui 保留已采集树；二者共享字段及缺省语义。内部 Figma 布局验证始终消费未裁剪 JSON，view-locate/view-inspect 直接实时查询 App。
+- `layout-dump` 公开稀疏 JSON artifact，`mode=interaction|ui`（默认 interaction）。interaction 保留原 HTML 语义裁剪与提升，并将窗口外分支的后代替换为 jugg_details 伪子节点（保留分支根；子树请求或视口未知时不折叠），伪节点不计入摘要；ui 保留已采集树；interaction 还删除 invisible/gone 整棵子树并省略 padding/textColor；其余字段含义与 ui 一致，ui 保留完整采集信息。公开虚拟 ID 缩写为 _vid_，ViewHierarchyClient 在 selector 请求边界还原运行时 _vir_id_，不变更 App 协议。内部 Figma 布局验证始终消费未裁剪 JSON，view-locate/view-inspect 直接实时查询 App。
 - `ViewHierarchyClient` 使用 App 内 LocalSocket Server-only 通道，不走 uiautomator 回退。
 - App 侧 ViewHierarchy 统一由 `DragonflyHierarchySource` 提取 Android View 与 Compose 节点；dump、selector、元素点击、getter 查询和旧布局验证不再维护独立 ViewTree 数据源，响应 envelope 保持原有结构；公开 dump 文件为 JSON。
 - Android 节点继续使用 Dragonfly 暴露的原始 View 执行 `performClick` / getter；Compose 节点当前以 bounds 中心 MotionEvent 点击，并对 Dragonfly 节点对象执行 getter，缺失能力返回明确错误。
-- 无 id 节点使用确定性 `_vir_id_<hash>`；只有 Dragonfly window/children 顺序与 UI 结构不变时才保证跨请求一致，不作为业务稳定身份。
+- 无 id 节点在 App 内使用确定性 `_vir_id_<hash>`，公开输出简写为 `_vid_<hash>`；只有 Dragonfly window/children 顺序与 UI 结构不变时才保证跨请求一致，不作为业务稳定身份。
 - 多进程场景按“主进程优先 -> 其余 PID -> `jugg_vh` 兼容名”尝试 socket。
 - 客户端 socket 读取超时为 12 秒，覆盖 App 侧 10 秒主线程操作期限并预留响应传输时间；服务端操作超时仍按原协议返回具体错误。
 - `ElementFinder` 在 selector 命中前过滤不可操作节点：可见、已显示、非零尺寸、有效 bounds。

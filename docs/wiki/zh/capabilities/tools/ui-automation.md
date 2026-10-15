@@ -40,11 +40,11 @@ activity-stack
 jugg layout-dump --mode interaction
 jugg layout-dump --mode ui
 jugg layout-dump --root-layout content
-jugg layout-dump --include-gone
+jugg layout-dump --mode ui --include-gone
 jugg layout-dump --all-windows
 ```
 
-`layout-dump` 输出公开稀疏 JSON artifact。`interaction`（默认）裁剪页面摘要，用于发现交互候选；`ui` 保留已采集的节点和父子关系，用于布局验证、状态排查及辅助还原。两模式保留输出节点的虚拟 ID 和非默认属性。
+`layout-dump` 输出公开稀疏 JSON artifact。`interaction`（默认）裁剪页面摘要，用于发现交互候选；`ui` 保留已采集的节点和父子关系，用于布局验证、状态排查及辅助还原。两模式使用相同的字段含义，公开虚拟 ID 简写为 `_vid_<hash>`；旧 `_vir_id_` selector 仍可使用。interaction 先删除 invisible/gone 节点及整个子树（不会提升孩子，`--include-gone` 也不例外），省略 `padding`、`textColor`，并保留 className。ui 在请求的采集范围内保留隐藏节点和视觉字段；GONE 节点仍需 `--include-gone`。
 
 交互摘要会删除无语义节点并提升孩子，不能证明元素不存在或原始层级，也不保证每个节点可点击。ui 仍受窗口、子树、GONE 筛选及预算限制；完整视觉还原需要额外图片、字体和绘制信息。
 

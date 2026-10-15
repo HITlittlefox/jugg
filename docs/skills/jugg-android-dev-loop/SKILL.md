@@ -1,7 +1,7 @@
 ---
 name: jugg-android-dev-loop
-version: 1.0.35
-date: 2026-10-15
+version: 1.0.38
+date: 2026-10-16
 description: >-
   Use when editing source files (Java/Kotlin/XML/layout/AndroidManifest/Gradle)
   in a Android project, or when user asks to build/deploy/verify an Android app.
@@ -132,6 +132,8 @@ python3 {SKILL_DIR}/scripts/jugg.py wait-logs --marker '<regex>' [--tags t1,t2] 
 ### UI Commands (low-frequency)
 
 For UI interaction/inspection (tap, view-locate, view-inspect, layout-dump) → read the relevant command sections in `references/cli_manual.md`.
+
+Interaction dumps remove invisible/gone subtrees and `padding`/`textColor`, prune nonsemantic wrappers, and fold offscreen descendants into inline `jugg_details` placeholders. Public virtual IDs use `_vid_`; `className` remains. Placeholders are not controls; use `--mode ui --root-layout <id>` for full details. Real children arrays put opening/closing brackets on separate lines.
 
 Use `layout-dump`'s inline `data.layout` when present; do not reread the same artifact. For large file-only results, locate a known selector or request a subtree before loading the entire tree.
 

@@ -40,7 +40,7 @@ Do not guess coordinates without evidence. Prefer an element selector, then coor
 jugg layout-dump --mode interaction
 jugg layout-dump --mode ui
 jugg layout-dump --root-layout content
-jugg layout-dump --include-gone
+jugg layout-dump --mode ui --include-gone
 jugg layout-dump --all-windows
 ```
 
@@ -50,10 +50,12 @@ Common arguments:
 |---|---|
 | `--mode` | interaction (default) browses interaction candidates; ui supports layout validation, state investigation, and reconstruction references |
 | `--root-layout` | Export only the subtree of the specified node |
-| `--include-gone` | Include GONE nodes |
+| `--include-gone` | Include GONE nodes in ui mode; interaction still removes hidden subtrees |
 | `--all-windows` | Export all windows instead of only the top window |
 
-The output is a JSON artifact at `data.file`. `interaction` removes non-root nodes without real IDs, text, descriptions, clickability, or diagnostics and promotes their children. `ui` preserves captured parent-child relationships and decorative nodes. Both modes share field meanings and retain output nodes' virtual IDs and non-default attributes.
+The output is a JSON artifact at `data.file`. Unless the offscreen retention rules apply, `interaction` removes non-root nodes without real IDs, text, descriptions, clickability, or diagnostics and promotes their children. `ui` preserves captured parent-child relationships and decorative nodes. Both modes share field meanings, with public virtual IDs shortened to `_vid_<hash>`; legacy `_vir_id_` selectors still work. interaction first removes invisible/gone nodes and their entire subtrees without promoting children, even with `--include-gone`, omits `padding` and `textColor`, and retains className. ui retains hidden nodes and visual fields within the requested collection scope; GONE nodes still require `--include-gone`.
+
+interaction uses a synthetic `jugg_details` child to indicate omitted offscreen descendants; it is not a clickable control. To expand them, use `jugg layout-dump --mode ui --root-layout <id>`. Subtree requests do not fold offscreen branches; partially visible branches and branches with descendants inside the window, unknown descendant geometry, or descendant diagnostics also remain expanded. See [Layout dump and UI evidence](../concepts/layout-dump-and-ui-evidence.md#interaction-summaries-and-ui-hierarchies-use-different-node-scopes) for the rules and boundaries.
 
 The mode does not automatically change window, subtree, GONE filtering, or collection budgets. Use `ui` for layout validation; reconstruction references also require evidence such as screenshots, image assets, and source.
 

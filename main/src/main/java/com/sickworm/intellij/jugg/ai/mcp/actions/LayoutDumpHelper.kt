@@ -264,6 +264,7 @@ internal object LayoutDumpHelper {
     }
 
     private fun countNodeRecursive(node: JsonObject): Int {
+        if (node.has("jugg_details")) return 0
         var count = 1
         val children = node.getAsJsonArrayOrEmpty("children")
         for (child in children) {
@@ -275,6 +276,7 @@ internal object LayoutDumpHelper {
     }
 
     private fun countClickableRecursive(node: JsonObject): Int {
+        if (node.has("jugg_details")) return 0
         var count = if (node.get("clickable")?.runCatching { asBoolean }?.getOrDefault(false) == true) 1 else 0
         val children = node.getAsJsonArrayOrEmpty("children")
         for (child in children) {

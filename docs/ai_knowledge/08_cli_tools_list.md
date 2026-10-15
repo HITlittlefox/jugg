@@ -277,12 +277,14 @@ jugg layout-dump [--mode <interaction|ui>] [--root-layout <nodeId>] [--include-g
 |----------|----------|------|
 | `--mode` | `mode` | interaction（默认）裁剪交互摘要；ui 保留已采集树用于 UI 验证 |
 | `--root-layout` / `--rootLayout` | `rootLayout` | 跨窗口查找并只导出指定节点子树 |
-| `--include-gone` / `--includeGone` | `includeGone=true` | 包含 GONE 节点 |
+| `--include-gone` / `--includeGone` | `includeGone=true` | ui 包含 GONE 节点；interaction 仍删除 invisible/gone 子树 |
 | `--all-windows` / `--allWindows` | `allWindows=true` | 导出所有窗口 |
 
-公开输出为稀疏 JSON artifact，路径见 data.file。mode/units/windows/deviceInfo/truncated 和可选 warnings/rootLayout 随文件保留。interaction 删除无真实 ID、文本、描述、点击和诊断的非根节点并提升孩子；ui 保留采集层级。两模式保留输出节点的虚拟 ID 与非默认字段，缺省语义见 MCP 参数清单。
+公开输出为稀疏 JSON artifact，路径见 data.file。mode/units/windows/deviceInfo/truncated 和可选 warnings/rootLayout 随文件保留。interaction 在未折叠范围删除无真实 ID、文本、描述、点击和诊断的非根节点并提升孩子；ui 保留采集层级。interaction 先删除 invisible/gone 节点及整个子树（不提升其孩子，includeGone=true 也不保留），省略 padding/textColor；其余保留字段与 ui 含义一致。两模式公开虚拟 ID 简写为 `_vid_<hash>`，selector 接受新格式和旧 `_vir_id_` 格式，边界转换保持 App 运行时协议不变。缺省语义见 MCP 参数清单。
 
-文件按节点紧凑换行，contentBytes 为含换行的 UTF-8 字节数；不超过 16 KiB 时同时返回完整 data.layout 对象，优先直接使用而不重复读文件。大结果仅保留文件与摘要，先按 selector、rootLayout 或相关文件行收窄读取。plain/json 两种 CLI 输出保留中文等 Unicode 字符；16 KiB 是文件阈值，不是最终终端响应或 Token 上限。
+interaction 在普通窗口中保留首个完全越界节点的交互模式字段，将其后代替换为仅含 `jugg_details` 的伪子节点（`View is off-screen; descendants omitted in interaction mode.`）；越界叶节点直接保留。伪节点不是控件，不参与节点或 clickable 统计。部分可见、零面积、后代与窗口相交、后代几何未知或带诊断时不折叠该分支。缺少有效窗口 bounds 或请求 rootLayout 子树时，保留原有语义裁剪，不猜测窗口视口。需要后代细节时使用 `--mode ui --root-layout <id>`；顺序、bounds 和 className 可作为滑动探索线索，滑动后需重新采集确认。
+
+真实节点按节点紧凑换行；仅含 jugg_details 的 children 保持行内；含至少一个真实节点的 children 在 `[` 前和 `]` 前换行，结尾 `]}` 单独成行。contentBytes 为含换行的 UTF-8 字节数；不超过 16 KiB 时同时返回完整 data.layout 对象，优先直接使用而不重复读文件。大结果仅保留文件与摘要，先按 selector、rootLayout 或相关文件行收窄读取。plain/json 两种 CLI 输出保留中文等 Unicode 字符；16 KiB 是文件阈值，不是最终终端响应或 Token 上限。
 
 按任务选择：未知页面交互用 interaction；布局、装饰节点、隐藏状态或辅助 UI 还原用 ui；已知 selector 直接 view-locate/tap；缺失属性使用 view-inspect。interaction 不证明不存在或真实父子关系；ui 不保证完整视觉还原。mode 不改变其他筛选参数，裁剪不标记预算 truncated；摘要统计实际输出节点。
 App 侧所有 UI 查询和动作统一通过 Dragonfly 实时 snapshot；传统 Android View 与 Compose 节点共享原有 JSON 节点字段。Dragonfly 自带私有化 Kotlin/协程运行时，纯 Java 工程同样可用；Compose tooling 不兼容时由 Dragonfly 局部收口，不回退旧 ViewTree。5000 节点/60 层 snapshot 截断范围同时约束 dump、selector、tap、inspect 和 verify。

@@ -221,7 +221,7 @@ python3 {SKILL_DIR}/scripts/jugg.py layout-dump
 python3 {SKILL_DIR}/scripts/jugg.py layout-dump --mode interaction           # browse interaction candidates (default)
 python3 {SKILL_DIR}/scripts/jugg.py layout-dump --mode ui                    # preserve captured hierarchy for UI validation
 python3 {SKILL_DIR}/scripts/jugg.py layout-dump --root-layout content_frame   # cross-window subtree (View resource name, not R.id.xxx)
-python3 {SKILL_DIR}/scripts/jugg.py layout-dump --include-gone                # include GONE views
+python3 {SKILL_DIR}/scripts/jugg.py layout-dump --mode ui --include-gone      # include GONE views
 python3 {SKILL_DIR}/scripts/jugg.py layout-dump --all-windows                 # all windows (dialogs, popups)
 ```
 
@@ -229,7 +229,7 @@ Output: `data.file` points to a sparse JSON artifact; `contentBytes` is its UTF-
 
 Files up to 16 KiB (16,384 UTF-8 bytes, including node separators) also return the complete JSON object in `data.layout`, in either mode. Use that object directly instead of rereading the artifact. Larger results omit `data.layout` and keep the complete file; they do not inline a partial preview. The threshold applies to the artifact, not the response envelope or a token budget. CLI plain/json output preserves Unicode; MCP carries the object only in `structuredContent.data.layout`, with a summary in text content.
 
-Each hierarchy node starts on a new line in the file; its fields and coordinate arrays stay compact. This is one nested JSON document, not JSONL. For large results, prefer a known selector with `view-locate`, or request `--root-layout` for the relevant subtree. When the target is unknown, search the file for relevant text/IDs and read nearby lines before expanding the scope. A few file lines do not represent the complete hierarchy.
+Each real hierarchy node starts on a new line in the file; its fields and coordinate arrays stay compact. Synthetic `jugg_details` children stay inline. Children arrays containing real nodes put their opening `[` and closing `]}` on separate lines. This is one nested JSON document, not JSONL. For large results, prefer a known selector with `view-locate`, or request `--root-layout` for the relevant subtree. When the target is unknown, search the file for relevant text/IDs and read nearby lines before expanding the scope. A few file lines do not represent the complete hierarchy.
 
 | Task | Mode / tool |
 |---|---|
@@ -239,9 +239,11 @@ Each hierarchy node starts on a new line in the file; its fields and coordinate 
 | Read properties absent from the dump, such as text size or background | `view-inspect` |
 | Recreate UI structure and geometry | `ui` plus available screenshots, assets, and source; the dump does not contain complete visual or source information |
 
-Interaction mode keeps window roots and nodes with real IDs, text, descriptions, clickability, or diagnostics; other nodes are removed and children are promoted. Retained nodes keep their virtual IDs and non-default attributes. This mode is a page summary, not a list of guaranteed actionable elements. Its absence and hierarchy cannot establish element absence or original parent-child relationships. Use a live query or UI mode for further evidence. Pruning does not set `truncated`.
+Interaction mode first removes invisible/gone nodes and their entire subtrees, even with `--include-gone`, and omits `padding` and `textColor`; `className` remains. Apart from the offscreen retention rules below, it keeps visible window roots and nodes with real IDs, text, descriptions, clickability, or diagnostics; other nodes are removed and children are promoted. Both modes expose virtual IDs as `_vid_<hash>`; selectors also accept legacy `_vir_id_` IDs. This mode is a page summary, not a list of guaranteed actionable elements. Its absence and hierarchy cannot establish element absence or original parent-child relationships. Use a live query or UI mode for further evidence. Pruning does not set `truncated`.
 
-UI mode preserves the captured tree. Both modes retain the same field meanings, window/subtree scope, includeGone filtering, and collection limits. A truncated or incomplete tree cannot prove absence. All app-side UI queries and actions use fresh Dragonfly snapshots; collect fresh evidence after interaction. The 5000-node/60-level snapshot boundary also limits selectors, taps, inspections, and verification. Java-only projects are supported by the private runtime. A Compose virtual ID remains stable only while traversal order and UI structure are unchanged. Compose element taps dispatch a MotionEvent at the node center rather than invoking a Semantics action.
+Interaction mode also folds fully offscreen branches in ordinary windows: the first offscreen node keeps its interaction fields, and its descendants are replaced by one synthetic child containing only `jugg_details`: `View is off-screen; descendants omitted in interaction mode.` Offscreen leaves remain. The placeholder is not a control and is excluded from node/clickable counts. Branches with intersecting descendants, unknown descendant geometry, or descendant diagnostics are not folded; partially visible and zero-area nodes are not folded either. Missing window bounds and rootLayout subtree requests keep the existing semantic pruning without viewport folding. Use `--mode ui --root-layout <id>` to inspect omitted descendants. Order, bounds, and className provide exploration clues; collect fresh evidence after swiping. Folding does not set `truncated`.
+
+UI mode preserves the captured tree, hidden nodes, and visual fields within the requested scope; GONE nodes require `--include-gone`. Both modes retain the same field meanings, window/subtree scope, and collection limits. A truncated or incomplete tree cannot prove absence. All app-side UI queries and actions use fresh Dragonfly snapshots; collect fresh evidence after interaction. The 5000-node/60-level snapshot boundary also limits selectors, taps, inspections, and verification. Java-only projects are supported by the private runtime. A Compose virtual ID remains stable only while traversal order and UI structure are unchanged. Compose element taps dispatch a MotionEvent at the node center rather than invoking a Semantics action.
 
 ---
 

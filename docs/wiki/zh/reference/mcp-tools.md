@@ -104,6 +104,12 @@ ViewHierarchy 相关工具执行前会等待 App 在线。设备息屏或未解�
 
 文件自包含 mode、units、windows、deviceInfo、truncated 和可选 warnings/rootLayout。bounds/padding 正常为整数 dp；缺少有效 density 时保留 px，由 units 明示。空值和默认 visibility=visible、alpha=1、clickable=false、enabled=true、全零 padding、空 children 省略。textColor 缺失也可能表示未采集或默认值。摘要统计实际输出节点，裁剪不设置预算 truncated。
 
+两模式使用相同的字段含义，公开虚拟 ID 简写为 `_vid_<hash>`；旧 `_vir_id_` selector 仍可使用。interaction 先删除 invisible/gone 节点及整个子树（不会提升孩子，`--include-gone` 也不例外），省略 `padding`、`textColor`，并保留 className。ui 在请求的采集范围内保留隐藏节点和视觉字段；GONE 节点仍需 `--include-gone`。
+
+真实节点另起一行，属性和坐标保持紧凑；`jugg_details` 伪节点不换行。children 至少包含一个真实节点时，开头 `[` 和末尾 `]}` 各另起一行。
+
+interaction 在窗口外分支中保留首个节点，并以仅含 `jugg_details` 的伪子节点代替后代。伪节点不计入节点或 clickable 统计，折叠不设置 `truncated`。用 `--mode ui --root-layout <id>` 展开；规则与保留条件见[布局 dump 与 UI 证据](../concepts/layout-dump-and-ui-evidence.md#交互摘要与-ui-层级采用不同节点范围)。
+
 `data.file` 始终指向完整产物，`contentBytes` 是包含节点换行的 UTF-8 文件字节数。不超过 16 KiB（16,384 字节）时，两种模式都会在 `structuredContent.data.layout` 中附带完整 JSON 对象；超出时省略该字段，不返回截取的部分树。文本 content 只包含摘要，整棵树不重复发送。CLI 的 plain/json 输出保留 Unicode。16 KiB 是文件阈值，不是响应总大小或 Token 上限；客户端需将 structuredContent 提供给 Agent 才能直接使用内联对象。
 
 局部 UI 采集失败时，`layout-dump` 保留有效 JSON，并在摘要标记 `incomplete hierarchy`；结果可选 `data.warnings` 和 JSON 节点诊断给出原因。定位、查询和元素触控命中有效节点时仍返回结果并携带诊断；未命中且当前窗口采集不完整时返回 `UI_HIERARCHY_INCOMPLETE`。预算截断仍单独使用 `truncated`。恢复步骤见 [UI 自动化](../capabilities/tools/ui-automation.md#compose-内容缺失时)。

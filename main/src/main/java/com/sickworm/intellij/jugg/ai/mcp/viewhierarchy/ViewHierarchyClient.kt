@@ -235,7 +235,7 @@ open class ViewHierarchyClient(
 
         val data = response.data ?: return null
         val resolvedClassName = data.optStringOrNull("className").orEmpty()
-        val resolvedResourceId = data.optStringOrNull("resourceId").orEmpty()
+        val resolvedResourceId = data.optStringOrNull("resourceId").orEmpty().compactVirtualId()
         val density = data.get("density")?.runCatching { asDouble }?.getOrDefault(0.0) ?: 0.0
         val source = parseSourceLocation(data.optJsonObject("source"))
         val valuesArray = data.optJsonArray("values") ?: return null
@@ -349,7 +349,7 @@ open class ViewHierarchyClient(
         return MatchedElementData(
             text = element.optStringOrNull("text").orEmpty(),
             className = element.optStringOrNull("className").orEmpty(),
-            resourceId = element.optStringOrNull("resourceId").orEmpty(),
+            resourceId = element.optStringOrNull("resourceId").orEmpty().compactVirtualId(),
             contentDesc = element.optStringOrNull("contentDesc").orEmpty(),
             bounds = bounds,
             centerX = element.optIntOrNull("centerX") ?: return null,
@@ -367,7 +367,7 @@ open class ViewHierarchyClient(
             val item = element.asJsonObjectOrNull() ?: return@mapNotNull null
             MatchCandidate(
                 text = item.optStringOrNull("text").orEmpty(),
-                resourceId = item.optStringOrNull("resourceId").orEmpty(),
+                resourceId = item.optStringOrNull("resourceId").orEmpty().compactVirtualId(),
                 contentDesc = item.optStringOrNull("contentDesc").orEmpty(),
                 className = item.optStringOrNull("className").orEmpty(),
                 bounds = item.optJsonArray("bounds")?.mapNotNull { it.asIntOrNull() }?.takeIf { it.size == 4 },
@@ -393,8 +393,9 @@ open class ViewHierarchyClient(
             return null
         }
 
+        val runtimeRequest = request.copy(params = runtimeSelectorParams(request.params))
         for (socketName in socketNames) {
-            val response = sendRequestToSocket(socketName, request)
+            val response = sendRequestToSocket(socketName, runtimeRequest)
             if (response != null) {
                 checkServerVersion(response.version)
                 return response
@@ -402,6 +403,20 @@ open class ViewHierarchyClient(
         }
         return null
     }
+
+    /** Expand only selector IDs, leaving text and getter expression values unchanged. */
+    private fun runtimeSelectorParams(params: Map<String, Any?>): Map<String, Any?> = params.mapValues { (key, value) ->
+        when (key) {
+            "resourceId", "rootLayout" -> runtimeSelectorId(value)
+            "target", "target2" -> (value as? Map<*, *>)?.mapValues { (name, id) ->
+                if (name == "resourceId") runtimeSelectorId(id) else id
+            } ?: value
+            else -> value
+        }
+    }
+
+    private fun runtimeSelectorId(value: Any?): Any? =
+        if (value is String && value.startsWith("_vid_")) "_vir_id_" + value.removePrefix("_vid_") else value
 
     protected open fun resolveSocketCandidates(): List<String> {
         if (!PACKAGE_NAME_PATTERN.matches(packageName)) {

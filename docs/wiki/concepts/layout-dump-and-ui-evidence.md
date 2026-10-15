@@ -46,11 +46,17 @@ Small results also include the complete layout object in the response, saving a 
 
 ## Interaction summaries and UI hierarchies use different node scopes
 
-interaction (default) browses a page and discovers interaction candidates: it keeps window roots and nodes with real IDs, text, descriptions, clickability, or diagnostics. Other nodes are removed and their children are promoted to retained ancestors. Leaf nodes such as images without semantic content may also be omitted, so the summary cannot establish absence or original parent-child relationships and does not guarantee that all output nodes are clickable.
+interaction (default) browses a page and discovers interaction candidates. Apart from the offscreen retention rules below, it keeps visible window roots and nodes with real IDs, text, descriptions, clickability, or diagnostics. Other nodes are removed and their children are promoted to retained ancestors. Leaf nodes such as images without semantic content may also be omitted, so the summary cannot establish absence or original parent-child relationships and does not guarantee that all output nodes are clickable.
+
+Real nodes start on new lines, while attributes and coordinates stay compact; synthetic `jugg_details` nodes stay inline. When children include at least one real node, the opening `[` and closing `]}` each start on a new line.
+
+In ordinary windows, interaction keeps the first node fully outside the window bounds, including its className, ID, bounds, and state, and replaces its descendants with a synthetic child containing `jugg_details`: `View is off-screen; descendants omitted in interaction mode.` The placeholder indicates that descendants were omitted from the summary; it is not a real control and is excluded from node and clickable counts. Offscreen nodes that already have no children remain unchanged.
+
+Partially visible nodes, zero-area nodes, and branches with descendants inside the window, unknown descendant geometry, or descendant diagnostics are not folded. When window bounds are invalid or `rootLayout` requests a subtree, the existing semantic pruning continues without inferring screen bounds from the subtree. To expand descendants, use `jugg layout-dump --mode ui --root-layout <id>`. Retained node order, bounds, and className can suggest a direction for swipe exploration; collect a new snapshot afterward to confirm content changes.
 
 ui preserves the currently captured tree for geometry, parent-child structure, decorative nodes, and hidden-state validation. It provides structure and text as reconstruction references, but complete visual or source reconstruction also requires images, fonts, drawing effects, source, and other information. Both modes observe window, subtree, GONE filtering, and collection budgets; intentional pruning does not set truncated.
 
-Both modes share field meanings and retain output nodes' virtual IDs and non-default attributes. Empty values and default states are omitted to control information volume.
+Both modes share field meanings, with public virtual IDs shortened to `_vid_<hash>`; legacy `_vir_id_` selectors still work. interaction first removes invisible/gone nodes and their entire subtrees without promoting children, even with `--include-gone`, omits `padding` and `textColor`, and retains className. ui retains hidden nodes and visual fields within the requested collection scope; GONE nodes still require `--include-gone`. Empty values and default states are omitted to control information volume.
 
 Different questions use different evidence sources:
 

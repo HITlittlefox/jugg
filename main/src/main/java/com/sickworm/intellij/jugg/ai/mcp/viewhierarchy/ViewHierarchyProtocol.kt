@@ -2,6 +2,10 @@ package com.sickworm.intellij.jugg.ai.mcp.viewhierarchy
 
 import com.google.gson.JsonObject
 
+/** Shorten public virtual IDs while keeping the app-side selector protocol unchanged. */
+internal fun String.compactVirtualId(): String =
+    if (startsWith("_vir_id_")) "_vid_" + removePrefix("_vir_id_") else this
+
 /**
  * ViewHierarchyRequest describes one socket action request sent to app-side server.
  */

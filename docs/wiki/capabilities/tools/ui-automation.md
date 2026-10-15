@@ -40,11 +40,11 @@ Confirm the page before collecting structure and properties. For interaction, pr
 jugg layout-dump --mode interaction
 jugg layout-dump --mode ui
 jugg layout-dump --root-layout content
-jugg layout-dump --include-gone
+jugg layout-dump --mode ui --include-gone
 jugg layout-dump --all-windows
 ```
 
-`layout-dump` outputs a public sparse JSON artifact. `interaction` (default) prunes a page summary for discovering interaction candidates; `ui` preserves captured nodes and parent-child relationships for layout validation, state investigation, and reconstruction references. Both modes retain output nodes' virtual IDs and non-default attributes.
+`layout-dump` outputs a public sparse JSON artifact. `interaction` (default) prunes a page summary for discovering interaction candidates; `ui` preserves captured nodes and parent-child relationships for layout validation, state investigation, and reconstruction references. Both modes share field meanings, with public virtual IDs shortened to `_vid_<hash>`; legacy `_vir_id_` selectors still work. interaction first removes invisible/gone nodes and their entire subtrees without promoting children, even with `--include-gone`, omits `padding` and `textColor`, and retains className. ui retains hidden nodes and visual fields within the requested collection scope; GONE nodes still require `--include-gone`.
 
 The interaction summary removes nodes without semantic content and promotes children. It cannot establish absence or original hierarchy and does not guarantee that every node is clickable. UI mode still observes window, subtree, GONE filtering, and budget limits; complete visual reconstruction requires additional images, fonts, and drawing information.
 
