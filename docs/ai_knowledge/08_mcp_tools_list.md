@@ -196,7 +196,9 @@
 
 ### `layout-dump`
 
-导出 UI 层级稀疏 JSON（`data.file`，artifact.type=json）。`mode=interaction`（默认）用于浏览交互候选；`mode=ui` 保留采集树用于 UI 验证、状态排查和辅助还原。两种模式均不内联大树，`contentBytes` 为文件 UTF-8 字节数。
+导出 UI 层级稀疏 JSON（`data.file`，artifact.type=json）。`mode=interaction`（默认）用于浏览交互候选；`mode=ui` 保留采集树用于 UI 验证、状态排查和辅助还原。`contentBytes` 为文件 UTF-8 字节数（包含节点换行）；不超过 16 KiB（16,384 字节）时同时返回完整对象 `data.layout`，超出时省略该字段并保留完整文件，不返回局部预览。阈值适用于文件，不是响应 envelope 或 Token 上限。
+
+文件在每个 root/children 节点前换行，节点属性及坐标数组保持紧凑，不添加层级缩进。内联对象只位于 MCP `structuredContent.data.layout`，text content 仍为摘要，避免重复传输整棵树；只展示 text content 的客户端应使用文件路径或 CLI。Agent 优先使用内联对象；大文件按需搜索并读取相关行，或使用 rootLayout/view-locate 收窄范围。
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|

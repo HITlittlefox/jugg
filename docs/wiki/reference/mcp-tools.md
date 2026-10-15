@@ -104,6 +104,8 @@ ViewHierarchy tools wait for the app to be online before running. A screen that 
 
 The file contains mode, units, windows, deviceInfo, truncated, and optional warnings/rootLayout. Bounds/padding normally use integer dp; without valid density, px is retained and declared in units. Empty values and defaults visibility=visible, alpha=1, clickable=false, enabled=true, zero padding, and empty children are omitted. Missing textColor can also mean uncollected or default values. The summary counts actual output nodes; pruning does not set budget truncated.
 
+`data.file` always points to the complete artifact. `contentBytes` is its UTF-8 byte size, including node separators. At or below 16 KiB (16,384 bytes), both modes also include the complete JSON object in `structuredContent.data.layout`. Larger results omit this field rather than returning a partial tree. Text content contains only the summary, so the full tree is not sent twice. CLI plain/json output preserves Unicode. The 16 KiB threshold applies to the file, not the total response size or a token limit. Clients must expose structuredContent to the Agent to use the inline object directly.
+
 If part of the UI hierarchy cannot be extracted, `layout-dump` preserves valid JSON and marks its summary with `incomplete hierarchy`. Optional `data.warnings` and JSON node diagnostics give the cause. Location, inspection, and element input still return results for valid matches, along with diagnostics. If there is no match and the current window's hierarchy is incomplete, they return `UI_HIERARCHY_INCOMPLETE`. Budget limits continue to use `truncated` separately. For recovery steps, see [UI automation](../capabilities/tools/ui-automation.md#when-compose-content-is-missing).
 
 ## Common error codes

@@ -9,6 +9,23 @@ class LayoutJsonConverterTest {
     private val converter = LayoutJsonConverter()
 
     @Test
+    fun testNodeLinesRoundTripWithoutSplittingFieldsOrText() {
+        val source = parse("""{"windows":[{"title":"窗口","root":{"className":"FrameLayout",
+            "bounds":[0,0,360,800],"children":[{"className":"TextView",
+            "text":"登录🙂\n\"children\":[{测试}]","padding":[1,2,3,4]},
+            {"className":"View","children":[{"className":"Button","text":"确认"}]}]}},
+            {"title":"popup","root":{"className":"View"}}],"warnings":["保持\\n诊断"],"truncated":true}""")
+        val text = converter.serialize(source)
+        Assert.assertEquals(source, parse(text))
+        val nodeLines = text.lines().filter { it.startsWith("{\"className\":") }
+        Assert.assertEquals(5, nodeLines.size)
+        Assert.assertTrue(nodeLines[0].contains("\"bounds\":[0,0,360,800]"))
+        Assert.assertTrue(nodeLines[1].contains("\"padding\":[1,2,3,4]"))
+        Assert.assertTrue(nodeLines[1].contains("登录🙂"))
+        Assert.assertTrue(text.lines().all { it.length == it.trimStart().length })
+    }
+
+    @Test
     fun testInteractionPromotesChildrenAndKeepsEverySemanticNodeInOrder() {
         val source = parse("""{"windows":[{"root":{"className":"FrameLayout","id":"_vir_id_root",
             "children":[{"className":"CustomWrapper","id":"_vir_id_wrapper","children":[

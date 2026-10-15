@@ -42,6 +42,8 @@ running target app
 
 The public result provides the JSON file path, artifact information, and UTF-8 content size. The file carries mode, units, windows, device density, budget truncated, and optional warnings/rootLayout so its collection scope and diagnostics can be read independently. The summary counts actual output nodes.
 
+Small results also include the complete layout object in the response, saving a separate file read. Large results remain in the file, with newlines between nodes for selective retrieval; node properties and coordinate arrays stay compact. Inline data and the file represent the same snapshot, whose scope is determined by the mode and collection parameters. See [MCP tools](../reference/mcp-tools.md) for the exact size condition.
+
 ## Interaction summaries and UI hierarchies use different node scopes
 
 interaction (default) browses a page and discovers interaction candidates: it keeps window roots and nodes with real IDs, text, descriptions, clickability, or diagnostics. Other nodes are removed and their children are promoted to retained ancestors. Leaf nodes such as images without semantic content may also be omitted, so the summary cannot establish absence or original parent-child relationships and does not guarantee that all output nodes are clickable.

@@ -131,7 +131,7 @@ tap
 | 数据 | 来源 | 单位 / 语义 |
 |------|------|-------------|
 | `layout-dump` JSON | `LayoutDumpHelper` | interaction 裁剪页面摘要；ui 保留采集树；文件自包含 mode、units、窗口、deviceInfo、truncated 和可选 warnings/rootLayout |
-| 内部 layout JSON | `LayoutDumpHelper.dumpInternal()` | 供布局验证存量 action 消费，始终保留采集树；公开 JSON 应通过工具返回的 data.file 读取 |
+| 内部 layout JSON | `LayoutDumpHelper.dumpInternal()` | 供布局验证存量 action 消费，始终保留采集树；公开 JSON 优先使用 data.layout，否则按需读取 data.file |
 | `view-locate.data.bounds` | `UiFindMcpToolAction` | `[left, top, right, bottom]`，单位 dp |
 | `view-locate.data.matchCount` | App 侧 `find_elements` | selector 总命中数；大于 1 时不返回顶层首个节点坐标 |
 | `view-locate.data.returnedCount/truncated` | App 侧 `find_elements` | 实际返回候选数，以及是否被 `maxResults` 截断 |

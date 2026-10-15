@@ -66,6 +66,8 @@ McpToolAction
 
 业务失败不应被客户端当作协议失败；Agent 判断命令是否成功时必须读取 `structuredContent.status` 和对应业务字段。
 
+`layout-dump` 的文件不超过 16 KiB 时，完整对象随 `structuredContent.data.layout` 返回，文本 content 保持摘要，不复制整棵树。CLI 读取 structuredContent 并保留 Unicode 输出；大结果继续只返回文件路径、字节数与摘要，文件按节点换行供局部读取。
+
 ---
 
 ## 5. 参数校验边界

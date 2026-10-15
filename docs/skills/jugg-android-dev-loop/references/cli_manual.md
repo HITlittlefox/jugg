@@ -227,6 +227,10 @@ python3 {SKILL_DIR}/scripts/jugg.py layout-dump --all-windows                 # 
 
 Output: `data.file` points to a sparse JSON artifact; `contentBytes` is its UTF-8 byte size. The file includes `mode`, `units` for bounds/padding, windows, device density, budget `truncated`, and optional `warnings`. Empty fields and defaults are omitted: visibility=visible, alpha=1, clickable=false, enabled=true, zero padding, and empty children. Missing textColor does not uniquely mean black: the collector also omits unavailable/default values.
 
+Files up to 16 KiB (16,384 UTF-8 bytes, including node separators) also return the complete JSON object in `data.layout`, in either mode. Use that object directly instead of rereading the artifact. Larger results omit `data.layout` and keep the complete file; they do not inline a partial preview. The threshold applies to the artifact, not the response envelope or a token budget. CLI plain/json output preserves Unicode; MCP carries the object only in `structuredContent.data.layout`, with a summary in text content.
+
+Each hierarchy node starts on a new line in the file; its fields and coordinate arrays stay compact. This is one nested JSON document, not JSONL. For large results, prefer a known selector with `view-locate`, or request `--root-layout` for the relevant subtree. When the target is unknown, search the file for relevant text/IDs and read nearby lines before expanding the scope. A few file lines do not represent the complete hierarchy.
+
 | Task | Mode / tool |
 |---|---|
 | Browse an unfamiliar page and discover text, buttons, or navigation | `layout-dump --mode interaction` |

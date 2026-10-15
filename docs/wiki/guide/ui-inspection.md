@@ -57,6 +57,8 @@ The output is a JSON artifact at `data.file`. `interaction` removes non-root nod
 
 The mode does not automatically change window, subtree, GONE filtering, or collection budgets. Use `ui` for layout validation; reconstruction references also require evidence such as screenshots, image assets, and source.
 
+Small results also return the complete `data.layout` object. Use it directly without rereading the same file. Large results keep the complete file, with newlines between nodes and compact properties and coordinate arrays. For a known target, prefer `view-locate` or `--root-layout`. For an unknown target, search the file for text or IDs and read the relevant lines. See [MCP tools](../reference/mcp-tools.md) for the inline size condition.
+
 ## Locate an element
 
 ```bash

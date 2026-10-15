@@ -1,6 +1,7 @@
 package com.sickworm.intellij.jugg.ai.mcp.actions
 
 import com.android.ddmlib.IDevice
+import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -16,6 +17,7 @@ import com.sickworm.intellij.jugg.ide.logic.IJuggConfigurationRunner
 import com.sickworm.intellij.jugg.ide.logic.JuggRunInvocationResult
 import com.sickworm.intellij.jugg.ai.mcp.IMcpRuntime
 import com.sickworm.intellij.jugg.ai.mcp.McpErrorCode
+import com.sickworm.intellij.jugg.ai.mcp.McpResultMapper
 import com.sickworm.intellij.jugg.ai.mcp.McpToolResult
 import com.sickworm.intellij.jugg.ai.mcp.McpToolStatus
 import com.sickworm.intellij.jugg.ai.mcp.viewhierarchy.LayoutDumpResult
@@ -79,6 +81,8 @@ class LayoutDumpMcpToolActionTest {
         Assert.assertTrue(file.name.endsWith(".json"))
         Assert.assertEquals(file.length(), (data["contentBytes"] as Number).toLong())
         val json = JsonParser.parseString(file.readText()).asJsonObject
+        Assert.assertEquals(json, data["layout"])
+        Assert.assertTrue(file.readText().lines().count { it.contains("\"className\"") } >= 2)
         Assert.assertEquals(mode, json["mode"].asString)
         Assert.assertEquals("dp", json.getAsJsonObject("units")["bounds"].asString)
         Assert.assertFalse(json["truncated"].asBoolean)
@@ -103,6 +107,45 @@ class LayoutDumpMcpToolActionTest {
         Assert.assertFalse(label["enabled"].asBoolean)
         Assert.assertEquals("[10,20,110,40]", label["bounds"].toString())
         Assert.assertEquals("[1,2,3,4]", label["padding"].toString())
+    }
+
+    @Test
+    fun testInlineLimitUsesUtf8BytesAndKeepsTheCompleteArtifact() {
+        val projectDir = createTempDir(prefix = "jugg_layout_inline_")
+        val setup = setup(projectDir, packageName = "com.example.app")
+        var payload = ""
+        Mockito.mockConstruction(ViewHierarchyClient::class.java) { mock, _ ->
+            Mockito.`when`(mock.dumpLayout(anyOrNull(), any(), any())).thenAnswer { LayoutDumpResult(payload, null) }
+        }.use {
+            val arguments = mapOf("projectDir" to projectDir.absolutePath, "mode" to "ui")
+            fun dump(text: String): McpToolResult {
+                payload = Gson().toJson(mapOf("windows" to listOf(mapOf("root" to mapOf(
+                    "className" to "TextView", "text" to text,
+                )))))
+                return LayoutDumpMcpToolAction().execute(arguments, setup.runtime)
+            }
+            val marker = "内联唯一文本🙂"
+            val initial = dump(marker)
+            val initialBytes = (initial.data as Map<*, *>)["contentBytes"] as Int
+            val boundaryText = marker + "x".repeat(16 * 1024 - initialBytes)
+            for (extra in listOf("", "界")) {
+                val result = dump(boundaryText + extra)
+                val data = result.data as Map<*, *>
+                val file = File(data["file"] as String)
+                Assert.assertEquals(16 * 1024L + extra.toByteArray(StandardCharsets.UTF_8).size, file.length())
+                Assert.assertEquals(file.length(), (data["contentBytes"] as Number).toLong())
+                val stored = JsonParser.parseString(file.readText()).asJsonObject
+                val text = stored.getAsJsonArray("windows")[0].asJsonObject.getAsJsonObject("root")["text"].asString
+                Assert.assertEquals(boundaryText + extra, text)
+                Assert.assertEquals(extra.isEmpty(), data.containsKey("layout"))
+                val response = JsonParser.parseString(Gson().toJson(McpResultMapper().toolSuccess(1, result)))
+                    .asJsonObject.getAsJsonObject("result")
+                val wireData = response.getAsJsonObject("structuredContent").getAsJsonObject("data")
+                Assert.assertEquals(extra.isEmpty(), wireData.has("layout"))
+                if (extra.isEmpty()) Assert.assertEquals(stored, wireData["layout"])
+                Assert.assertFalse(response.getAsJsonArray("content").toString().contains(marker))
+            }
+        }
     }
 
     @Test
@@ -141,6 +184,7 @@ class LayoutDumpMcpToolActionTest {
             Assert.assertTrue(json.contains("Available"))
             Assert.assertTrue(json.contains("Compose tooling unavailable"))
             val artifact = JsonParser.parseString(json).asJsonObject
+            Assert.assertEquals(artifact, data["layout"])
             Assert.assertEquals("Compose tooling unavailable", artifact.getAsJsonArray("warnings")[0].asString)
             Assert.assertEquals("px", artifact.getAsJsonObject("units")["bounds"].asString)
             Assert.assertEquals("json", result.artifacts.single().type)

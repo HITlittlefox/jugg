@@ -140,7 +140,7 @@ COMMAND_HELP: dict[str, CommandHelp] = {
     ),
     "layout-dump": CommandHelp(
         "layout-dump",
-        "Export interaction or UI hierarchy to a sparse JSON file.",
+        "Export node-separated JSON; files up to 16 KiB also return data.layout inline.",
         "jugg layout-dump [--mode <interaction|ui>] [--root-layout <id>] [--include-gone] [--all-windows]",
         (
             OptionHelp(

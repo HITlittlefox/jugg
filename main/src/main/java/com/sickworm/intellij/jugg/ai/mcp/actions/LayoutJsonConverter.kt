@@ -3,6 +3,7 @@ package com.sickworm.intellij.jugg.ai.mcp.actions
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import com.google.gson.JsonPrimitive
 
 /**
  * Builds a sparse JSON artifact from the normalized hierarchy without modifying its source.
@@ -10,6 +11,33 @@ import com.google.gson.JsonObject
  * preserves the captured tree. Retained nodes share the same fields in both modes.
  */
 internal class LayoutJsonConverter {
+
+    /** Keep node fields compact while starting each hierarchy node on its own line. */
+    fun serialize(root: JsonObject): String = buildString { appendJson(root, false) }
+
+    private fun StringBuilder.appendJson(element: JsonElement, node: Boolean) {
+        when {
+            element.isJsonObject -> {
+                if (node) append('\n')
+                append('{')
+                element.asJsonObject.entrySet().forEachIndexed { index, (key, value) ->
+                    if (index > 0) append(',')
+                    append(JsonPrimitive(key)).append(':')
+                    appendJson(value, key == "root" || key == "children")
+                }
+                append('}')
+            }
+            element.isJsonArray -> {
+                append('[')
+                element.asJsonArray.forEachIndexed { index, value ->
+                    if (index > 0) append(',')
+                    appendJson(value, node)
+                }
+                append(']')
+            }
+            else -> append(element)
+        }
+    }
 
     fun convert(root: JsonObject, mode: String): JsonObject {
         val output = root.deepCopy()

@@ -146,9 +146,10 @@ internal object LayoutDumpHelper {
                     addProperty("padding", unit)
                 })
                 // Keep the unpruned tree for internal consumers, regardless of public mode.
-                localJsonFile.writeText(uiJson.toString(), StandardCharsets.UTF_8)
+                val uiContent = converter.serialize(uiJson)
+                localJsonFile.writeText(uiContent, StandardCharsets.UTF_8)
                 val outputJson = if (mode == "ui") uiJson else converter.convert(uiJson, mode)
-                val content = outputJson.toString()
+                val content = if (mode == "ui") uiContent else converter.serialize(outputJson)
                 if (outputFile != localJsonFile) outputFile.writeText(content, StandardCharsets.UTF_8)
 
                 val summary = buildSummaryMessage(outputJson)
@@ -158,6 +159,7 @@ internal object LayoutDumpHelper {
                     jsonFile = localJsonFile,
                     outputFile = outputFile,
                     contentBytes = contentBytes,
+                    inlineLayout = outputJson.takeIf { contentBytes <= MAX_INLINE_BYTES },
                     warnings = jsonElement.asJsonObject.getAsJsonArrayOrEmpty("warnings")
                         .mapNotNull { it.asStringOrNull() },
                 )
@@ -177,6 +179,7 @@ internal object LayoutDumpHelper {
             val jsonFile: File,
             val outputFile: File,
             val contentBytes: Int,
+            val inlineLayout: JsonObject?,
             val warnings: List<String> = emptyList(),
         ) : DumpInternalResult()
 
@@ -190,7 +193,10 @@ internal object LayoutDumpHelper {
             data = linkedMapOf<String, Any>(
                 "file" to outputFile.absolutePath,
                 "contentBytes" to contentBytes,
-            ).apply { if (warnings.isNotEmpty()) put("warnings", warnings) },
+            ).apply {
+                if (inlineLayout != null) put("layout", inlineLayout)
+                if (warnings.isNotEmpty()) put("warnings", warnings)
+            },
             artifacts = listOf(McpArtifact(type = "json", path = outputFile.absolutePath)),
             errorCode = null,
         )
@@ -330,4 +336,5 @@ internal object LayoutDumpHelper {
         if (size() == 0) null else get(0).asJsonObjectOrNull()
 
     private const val MAX_COUNT_VISIT = 10_000
+    private const val MAX_INLINE_BYTES = 16 * 1024
 }
