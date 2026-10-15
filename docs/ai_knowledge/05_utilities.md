@@ -1,6 +1,6 @@
 # 公共工具模块（Utilities）
 
-> 最后核对：2026-09-08
+> 最后核对：2026-10-15
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -58,6 +58,8 @@ JuggManager 初始化
 
 ## 4. 隐形约束
 
+- `GitManager` 每次操作创建 Repository，并在操作完成、异常或提前返回时关闭；`Git.wrap(repository)` 不接管 Repository 的生命周期，不能仅关闭 Git 包装对象。一次 `filterChangedFiles()` 的 `IndexDiff` 与 `FileTreeIterator` 共用同一 Repository。配置读取、仓库存在性检查和初始化返回的 Git 对象也必须释放；worktree 继续使用原 builder 和 worktree-local HEAD 语义。
+- JGit 的 `packedGitLimit` 只约束 pack 窗口数据，不代表索引及整个 `WindowCache` 保留树的上限。缓存条目中的 `pack` 字段可以强引用 `Pack.loadedIdx`；反复创建而不关闭 Repository，可能让同一个大 pack 的索引出现多个副本。定位内存时先分开窗口、索引和副本数量，不应仅缩小窗口缓存或依赖 GC。
 - IDE 侧 `AskAiInvestigation` 负责问题输入、环境/logcat/产物采集与失败入口；`JuggManager` 只委托，`InvestigationSnapshotBuilder` 保持独立副本和 prompt 职责。复制日志前 `JuggLogger.flushProjectLog()` 等待异步 writer 排空，完整异常栈读取保存的真实文件；`RunLogCollector` 仅保留原有消息摘要。等待不持有全局生命周期锁或部署 monitor；中断/失败只记录 `logs-flush`，其余证据继续保留。
 - ASK AI 现场保存在 `JuggPathManager.investigationDir`，按项目路径 hash 隔离于全局 Jugg root，不进入 `build/jugg` 或远程编译同步范围；启动后独立清理超过 30 天的副本，复制文件保留采集时 mtime，源 mtime 仅写入 manifest。单个来源文件无法复制时记录失败，清单或 prompt 无法写入则明确失败。本地副本保留原始上下文，不复用用于上传的脱敏报告包；用户自行决定是否向 Issue 提供内容。
 - Source 的物理保存名包含单次采集序号，APK 归属和 deployPath 独立记录，避免不同 APK 的同名资源/Dex 相互覆盖。复制前后检查源大小和 mtime，检测到采集期间变化则舍弃该文件并记录原因。本地部署记录不是设备加载状态证明。

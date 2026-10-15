@@ -38,7 +38,7 @@
 5. 逐轮核对 `isGradleCompile=false`、编译成功、部署成功，及 detail 中实际单文件编译记录。Java 首轮触发重装，资源首轮传输已有 overlay 集合，分别标为预热 / 基线同步，不混入普通热部署比较。
 6. 实验结束取得第二份堆快照，再采集 90 秒 JFR。三份样本的 SHA-256 全部恢复，最后一次恢复也完成增量编译与部署；JOOX HEAD 与用户原有脏文件条目保持不变。远程跟踪分支的 behind 数变化来自后台 fetch，不属于源码修改。
 
-原始记录与脚本保存在本机仓库忽略目录 `build/reports/resource-usage-20261015/`，包含商业工程日志、堆快照和原始文件备份，仅本地保留。脚本中的采集目录仍指向采集时的 `/tmp/jugg-resource-evidence-20261015`；复用时需调整目录、IDE PID、工程与样本清单，不应直接照搬运行。可提交的逐轮摘要见 [CSV](jugg-resource-usage-samples.csv)。
+原始记录与脚本持久保存在本机 `/Users/wormchen/.jugg/investigations/resource-usage-20261015/`；仓库忽略目录 `build/reports/resource-usage-20261015/` 为指向它的符号链接，避免后续 clean 删除原始证据。归档包含商业工程日志、堆快照和原始文件备份，仅本地保留。脚本中的采集目录仍指向采集时的 `/tmp/jugg-resource-evidence-20261015`；复用时需调整目录、IDE PID、工程与样本清单，不应直接照搬运行。可提交的逐轮摘要见 [CSV](jugg-resource-usage-samples.csv)。
 
 完整本地文件校验清单为 `SHA256-manifest.json`。关键原始证据的 SHA-256：
 
@@ -113,7 +113,7 @@ IDE 是共享 JVM，GC、索引、JIT、UI 及其他插件造成显著波动。J
 - `JuggManager`、`JuggControlPanel`、`JuggHotUpdateDownloader`：初始化、任务显示及更新检查，不能表述为空闲完全不执行代码。
 - `LocalGradleCompileClient`、`RemoteGradleCompileClient`：本地与远程执行边界。daemon 复用条件以 [Gradle 官方文档](https://docs.gradle.org/current/userguide/gradle_daemon.html) 为依据，不采纳“IDE 与命令行必然不共享 daemon”的绝对说法。
 
-后续知识库候选：大型仓库现场的 JGit 缓存归因与生命周期诊断。尚未确认配置或生命周期缺陷，不将本次观测写成通用故障根因，不扩大为优化任务。
+后续知识库候选：大型仓库现场的 JGit 缓存归因与生命周期诊断。尚未确认配置或生命周期缺陷，不将本次观测写成通用故障根因。下个会话的内存优化从 [独立交接文档](jugg-memory-optimization-handoff.md) 继续；本次尚未实施优化。
 
 ## 验证与交付
 
