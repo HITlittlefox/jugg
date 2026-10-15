@@ -68,12 +68,12 @@ class KmModuleMergerTest {
     @Test
     fun `legacy metadata retains declarations after a serialization round trip`() {
         val assets = File("../idea/src/test/assets/kotlin/kotlin_module")
-        val merger = KmModuleMerger()
+        val merger = KmModuleMerger(logger)
         merger.merge(File(assets, "app_debug_new.kotlin_module"))
         merger.merge(File(assets, "app_debug_old.kotlin_module"))
         val output = temporaryFolder.newFile("merged.kotlin_module")
         merger.writeTo(output)
-        val reloaded = KmModuleMerger()
+        val reloaded = KmModuleMerger(logger)
         reloaded.merge(output)
 
         assertEquals(setOf(

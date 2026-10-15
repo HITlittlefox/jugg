@@ -2,7 +2,7 @@
 
 package com.sickworm.intellij.jugg.compiler.source.kotlin
 
-import com.sickworm.intellij.jugg.logger.JuggLogger
+import com.intellij.openapi.diagnostic.Logger
 import kotlinx.metadata.jvm.*
 import java.io.File
 
@@ -11,6 +11,7 @@ import java.io.File
  */
 class KmModuleMergerForCompilation(
     private val classPath: File,
+    private val logger: Logger,
 ): IKmModuleMergerForCompilation {
 
     private val metaInfDir get() = File(classPath, "META-INF")
@@ -22,7 +23,7 @@ class KmModuleMergerForCompilation(
             ?.forEach {
                 var merger = kmModuleFileMap[it.absolutePath]
                 if (merger == null) {
-                    merger = KmModuleMerger()
+                    merger = KmModuleMerger(logger)
                     kmModuleFileMap[it.absolutePath] = merger
                 }
                 merger.merge(it)
@@ -52,7 +53,7 @@ class KmModuleMergerForCompilation(
 /**
  * Read, write and merge .kotlin_module files.
  */
-class KmModuleMerger {
+class KmModuleMerger(private val logger: Logger) {
 
     private val kmModule = KmModule()
     private var version = JvmMetadataVersion.LATEST_STABLE_SUPPORTED
@@ -70,7 +71,7 @@ class KmModuleMerger {
             KotlinModuleMetadata.read(bytes)
         } catch (e: Exception) {
             preserveOriginal = true
-            JuggLogger.getGlobalLogger("KmModuleMerger").warn("Cannot read Kotlin module metadata: $kmModuleFile. " +
+            logger.warn("Cannot read Kotlin module metadata: $kmModuleFile. " +
                     "Keeping its original bytes; new top-level declarations may not be resolved.", e)
             return
         }

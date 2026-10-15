@@ -808,7 +808,7 @@ class KotlinCompilerInvoker {
         logger.debug("found metadata error message size ${outputParser.metadataVersionErrors.size}")
         outputParser.metadataVersionErrors.forEach { metadataError ->
             try {
-                val errorMerger = KmModuleMergerForCompilation(metadataError.metadataFile.parentFile.parentFile)
+                val errorMerger = KmModuleMergerForCompilation(metadataError.metadataFile.parentFile.parentFile, logger)
                 errorMerger.loadAndMerge()
                 errorMerger.save(metadataError.expectMetadataVersion)
                 logger.debug("save ${metadataError.metadataFile} from ${metadataError.actualVersion} to " +

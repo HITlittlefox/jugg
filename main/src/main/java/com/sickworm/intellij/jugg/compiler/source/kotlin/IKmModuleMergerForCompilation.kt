@@ -37,9 +37,9 @@ interface IKmModuleMergerForCompilation {
             val major = versions[0]
             val minor = versions[1]
             return if ((major > 2) || (major == 2 && minor >= 2)) {
-                KmModuleMergerForCompilation22(kotlinClassPath)
+                KmModuleMergerForCompilation22(kotlinClassPath, logger)
             } else {
-                KmModuleMergerForCompilation(kotlinClassPath)
+                KmModuleMergerForCompilation(kotlinClassPath, logger)
             }
         }
 

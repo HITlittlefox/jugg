@@ -294,7 +294,7 @@ class CompileEffectAnalyzer(
                 }
                 val kotlinClassPath = changedFile.module.buildPathInfo.kotlinClassPath
                 val extensionClasses = extensionClassesByClassPath.getOrPut(kotlinClassPath.absolutePath) {
-                    val kmModuleMerger = KmModuleMergerForCompilation(kotlinClassPath)
+                    val kmModuleMerger = KmModuleMergerForCompilation(kotlinClassPath, logger)
                     kmModuleMerger.loadAndMerge()
                     kmModuleMerger.getExtensionClasses().toSet()
                 }
