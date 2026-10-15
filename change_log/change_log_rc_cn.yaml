@@ -1,3 +1,10 @@
+- version: 3.6.5
+  date: 2026.10.15
+  updates:
+    - "[feature][compile] 支持 ARouter 注解；支持使用 APT/KAPT 与 KSP1/KSP2 处理器"
+    - "[bugfix][compile] 优化 KAPT 因正则回溯导致编译耗时异常过长的问题"
+    - "[bugfix][settings] 修复项目自定义配置中缺少可选构建规则字段时，自定义编译器加载失败的问题"
+
 - version: 3.6.4
   date: 2026.09.28
   updates:

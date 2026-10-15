@@ -1,3 +1,10 @@
+- version: 3.6.5
+  date: 2026.10.15
+  updates:
+    - "[feature][compile] Support ARouter annotations with APT/KAPT and KSP1/KSP2 processors"
+    - "[bugfix][compile] Fix excessive KAPT compilation time caused by regex backtracking"
+    - "[bugfix][settings] Fix failure to load custom compilers when project custom config is missing optional build rule fields"
+
 - version: 3.6.4
   date: 2026.09.28
   updates:
