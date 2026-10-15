@@ -1,6 +1,6 @@
 # Jugg 常量引用影响分析（ConstRefEngine / ConstRefAnalyzer）
 
-> 最后核对：2026-05-23
+> 最后核对：2026-10-15
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -139,7 +139,7 @@ analyzeFiles()
 - 受影响文件查询先定位 definition key，再匹配 latest candidate rows，最后按当前 worktree 还原绝对路径，仅返回本地存在文件。
 - 支持 `queryClassesBySimpleNames` 通过 `simple_class_id + const_name_id` 索引实现点查，避免全表扫描。
 - 使用共享 SQLite 长连接，避免高频建连；latest 版本选择追加 `checksum` 作为稳定 tie-breaker。
-- `PRAGMA schema_version=7`，不兼容时重建；parser 可见性规则或索引语义变化必须 bump version，避免旧库中的 stale definition/candidate 继续参与影响分析。
+- `PRAGMA schema_version=8`，不兼容时重建；parser 可见性规则或索引语义变化必须 bump version，避免旧库中的 stale definition/candidate 继续参与影响分析。版本 7 可能将省略修饰符的 Java 接口或注解字段缓存为空定义，升级后必须重新解析，不能继续复用对应的 mtime/checksum 分析记录。
 - 初始化识别 `SQLITE_CORRUPT` / `SQLITE_NOTADB` / `database disk image is malformed` 等损坏信号时会删除或旁路旧 DB 后重建；若重建或后续 ConstRef runtime 初始化仍失败，上层降级为 no-op，不阻断正常编译/部署。
 
 ### 5.2 `RepoSharedFingerprintStore`
@@ -190,7 +190,7 @@ IO 限频默认只影响后台任务；用户等待链路默认不 sleep：
 - `private const val` 与 `private static final` 不进入 definition 索引和 diff；它们只影响声明所在源码文件，本文件已在首批编译内，不需要额外跟编引用方。
 - full scan、file change 分析、cache cleanup、delete cleanup 等后台链路异常仅 debug，不影响增量编译；删除 cleanup 遇到 SQLite busy/locked 会在后台有限重试，仍失败时去重后延迟重新入队。
 - ConstRef 是可选系统：DB / fingerprint store 初始化失败会把本进程 ConstRef runtime 降级为 no-op；full scan、保存/删除分析、pre-compile readiness、on-demand 分析、effected files 查询、cleanup、commit ack 等运行期失败只影响当前操作，不允许影响 Run / compile / deploy 主流程，也不应永久禁用已初始化 runtime。调度取消（如 `CancellationException`）属于正常重排/释放信号，不视为 runtime 故障。
-- Java 只记录可内联类型的 `static final` 字段；Kotlin 支持 top-level、object、companion、嵌套 class/object 的 `const val`。
+- Java 只记录可内联类型的 `static final` 字段；接口和注解类型直接声明的字段按隐式 `static final` 处理，不要求源码显式写出修饰符。嵌套普通类仍按自身字段修饰符判断，非静态、非 final、private 和非内联类型字段继续排除。Kotlin 支持 top-level、object、companion、嵌套 class/object 的 `const val`。
 - Java/Kotlin parser 都忽略注释和字符串文本中的伪引用。
 
 ---
@@ -200,6 +200,7 @@ IO 限频默认只影响后台任务；用户等待链路默认不 sleep：
 | 现象 | 优先入口 |
 |---|---|
 | `constRefEffectedSourcePaths` 为空 | `DeployFileManager.getRecompileFiles()` 是否传入 changed source；`DeployDataGenerator` 的 `constRefEffectProvider.getEffectedFiles()` |
+| Java 接口常量改值后只编译定义文件 | 检查 `JavaConstParser` 是否按接口字段的隐式 `static final` 收录定义；省略 `final` 不应导致漏识别。版本 7 缓存需升级重建，不能只改 parser 后沿用空定义快照。 |
 | 结果疑似滞后 | `ConstRefEngine.awaitAnalysis()`，日志 `analysis not ready` / `awaitAnalysis timeout` 的 `unreadyPathCount` |
 | 删除或 `const -> val` 未触发重编 | `ConstRefChangeTracker` 的 removed keys，`ConstRefImpactResolver.getEffectedFiles()` |
 | 空白改动触发大量重编译 | `ConstRefChangeTracker.consumeDefinitionDiff()` 是否产生 changed keys |
@@ -223,11 +224,11 @@ IO 限频默认只影响后台任务；用户等待链路默认不 sleep：
 | 测试文件 | 重点验证 |
 |---|---|
 | `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/ConstRefEngineTest.kt` | 编辑态延迟、await 冲刷、删除清理、removed keys、full scan 不阻塞就绪、on-demand 降级。 |
-| `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/ConstRefIntegrationTest.kt` | 冷启动 full scan、companion const、同包嵌套 object const、无关类不误报。 |
+| `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/ConstRefIntegrationTest.kt` | 冷启动 full scan、companion const、同包嵌套 object const、Java 接口隐式常量变化后命中 Kotlin when/回调引用方、未变常量引用方不误报。 |
 | `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/ConstRefAnalyzerTest.kt` | Java/Kotlin parser 并发访问串行化。 |
-| `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/JavaConstParserTest.kt` | Java 定义/引用解析、注解常量、忽略注释/字符串。 |
+| `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/JavaConstParserTest.kt` | Java 定义/引用解析、接口与注解隐式常量、嵌套普通类字段边界、忽略注释/字符串。 |
 | `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/KotlinConstParserTest.kt` | Kotlin alias/星号导入、同包解析、忽略注释/字符串。 |
-| `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/ConstRefCacheDatabaseTest.kt` | DB upsert/query、mtime 映射、cleanup、DB-first 批量查询。 |
+| `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/ConstRefCacheDatabaseTest.kt` | DB upsert/query、mtime 映射、cleanup、DB-first 批量查询、版本 7 空定义分析记录失效。 |
 | `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/RepoSharedFingerprintStoreTest.kt` | mtime 命中、中段变化 miss、worktree 共享、cleanup。 |
 
 ---

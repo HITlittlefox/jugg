@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -34,41 +35,47 @@ class ConstRefCacheDatabaseTest : ConstRefTempDirCleanupSupport() {
                 }
                 statement.executeQuery("PRAGMA schema_version").use { resultSet ->
                     assertTrue(resultSet.next())
-                    assertEquals(7, resultSet.getInt(1))
+                    assertEquals(8, resultSet.getInt(1))
                 }
             }
         }
     }
 
     @Test
-    fun `should recreate schema 6 database after const ref rule version bump`() {
+    fun `should invalidate schema 7 analysis after implicit constant rule change`() {
         val dbDir = createTempDirectory("const_ref_db_schema_bump")
         File(dbDir, ".git").mkdirs()
         val dbFile = File(dbDir, "const_ref_test.db")
+        val sourceFile = File(dbDir, "Commands.java").apply {
+            writeText("interface Commands { int VALUE = 1; }")
+        }
+        val sourcePath = sourceFile.toStdPath()
+        val oldDatabase = ConstRefCacheDatabase(dbFile, logger)
+        try {
+            oldDatabase.upsertFileAnalysis(
+                filePath = sourcePath,
+                lastModified = sourceFile.lastModified(),
+                checksum = 123L,
+                definitions = emptyList(),
+                references = emptyList(),
+            )
+            assertTrue(oldDatabase.hasFileAnalysis(sourcePath, 123L))
+        } finally {
+            oldDatabase.close()
+        }
         DriverManager.getConnection("jdbc:sqlite:${dbFile.absolutePath}").use { connection ->
             connection.createStatement().use { statement ->
-                statement.executeUpdate("CREATE TABLE old_const_definitions(id INTEGER PRIMARY KEY, const_name TEXT)")
-                statement.executeUpdate("INSERT INTO old_const_definitions(const_name) VALUES('STALE_PRIVATE_CONST')")
-                statement.executeUpdate("PRAGMA schema_version = 6")
+                statement.executeUpdate("PRAGMA schema_version = 7")
             }
         }
 
         val database = ConstRefCacheDatabase(dbFile, logger)
-        database.close()
-
-        DriverManager.getConnection("jdbc:sqlite:${dbFile.absolutePath}").use { connection ->
-            connection.createStatement().use { statement ->
-                statement.executeQuery("PRAGMA schema_version").use { resultSet ->
-                    assertTrue(resultSet.next())
-                    assertEquals(7, resultSet.getInt(1))
-                }
-                statement.executeQuery(
-                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='old_const_definitions'"
-                ).use { resultSet ->
-                    assertTrue(resultSet.next())
-                    assertEquals(0, resultSet.getInt(1))
-                }
-            }
+        try {
+            assertFalse(database.hasFileAnalysis(sourcePath, 123L))
+            assertNull(database.getChecksumByLastModified(sourcePath, sourceFile.lastModified()))
+            assertNull(database.getFileCache(sourcePath))
+        } finally {
+            database.close()
         }
     }
 

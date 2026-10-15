@@ -270,7 +270,7 @@ class JavaConstParser(
                 if (fieldDeclaration.isPrivate) {
                     return@forEach
                 }
-                if (!fieldDeclaration.isFinal || (!fieldDeclaration.isStatic && !isInterfaceField(fieldDeclaration, typeDeclaration))) {
+                if (!hasImplicitConstantModifiers(typeDeclaration) && (!fieldDeclaration.isStatic || !fieldDeclaration.isFinal)) {
                     return@forEach
                 }
                 val fieldType = fieldDeclaration.commonType.asString()
@@ -305,10 +305,11 @@ class JavaConstParser(
             }
     }
 
-    private fun isInterfaceField(fieldDeclaration: FieldDeclaration, typeDeclaration: TypeDeclaration<*>): Boolean {
+    private fun hasImplicitConstantModifiers(typeDeclaration: TypeDeclaration<*>): Boolean {
+        // JavaParser exposes only written modifiers; interface and annotation fields are implicitly static final.
         return when (typeDeclaration) {
-            is ClassOrInterfaceDeclaration -> typeDeclaration.isInterface && fieldDeclaration.isFinal
-            is AnnotationDeclaration -> fieldDeclaration.isFinal
+            is ClassOrInterfaceDeclaration -> typeDeclaration.isInterface
+            is AnnotationDeclaration -> true
             else -> false
         }
     }
