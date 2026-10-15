@@ -13,6 +13,81 @@ import java.io.File
 
 class ConstRefIntegrationTest : ConstRefTempDirCleanupSupport() {
     @Test
+    fun `should detect callers through named kotlin companion and aliases`() {
+        assertCompanionCallers(
+            companionName = "Codes",
+            changedConstant = "CMD",
+            callers = mapOf(
+                "NamedUser.kt" to "import com.example.Commands\nval value = Commands.Codes.CMD",
+                "AliasUser.kt" to "import com.example.Commands.Codes.CMD as ALIAS\nval value = ALIAS",
+                "OuterUser.kt" to "import com.example.Commands\nval value = Commands.CMD",
+            ),
+            unchangedCaller = "import com.example.Commands\nval value = Commands.Codes.Nested.LIMIT",
+        )
+    }
+
+    @Test
+    fun `should detect callers of objects nested in kotlin companions`() {
+        listOf("Companion", "Codes").forEach { companionName ->
+            assertCompanionCallers(
+                companionName = companionName,
+                changedConstant = "LIMIT",
+                callers = mapOf(
+                    "NestedUser.kt" to "import com.example.Commands\nval value = Commands.$companionName.Nested.LIMIT",
+                    "AliasUser.kt" to "import com.example.Commands.$companionName.Nested.LIMIT as ALIAS\nval value = ALIAS",
+                ),
+                unchangedCaller = "import com.example.Commands\nval value = Commands.CMD",
+            )
+        }
+    }
+
+    private fun assertCompanionCallers(
+        companionName: String,
+        changedConstant: String,
+        callers: Map<String, String>,
+        unchangedCaller: String,
+    ) {
+        val rootDir = createTempDirectory("const_ref_kotlin_companion")
+        File(rootDir, ".git").mkdirs()
+        val declarationName = if (companionName == "Companion") "" else companionName
+        val source = """
+            package com.example
+            interface Commands {
+                companion object $declarationName {
+                    const val CMD = 1
+                    object Nested { const val LIMIT = 1 }
+                }
+            }
+        """.trimIndent()
+        val constantsFile = File(rootDir, "Commands.kt").apply { writeText(source) }
+        val callerFiles = (callers + ("UnchangedUser.kt" to unchangedCaller)).map { (name, body) ->
+            File(rootDir, name).apply { writeText("package com.example.user\n$body") }
+        }
+        val paths = listOf(constantsFile.toStdPath()) + callerFiles.map { it.toStdPath() }
+        val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        val engine = ConstRefEngine(
+            analyzer = ConstRefAnalyzer(logger),
+            database = ConstRefCacheDatabase(File(rootDir, "const_ref.db"), logger),
+            logger = logger,
+            backgroundTaskRunner = CoroutineBackgroundTaskRunner(scope),
+            repoSharedFingerprintStore = RepoSharedFingerprintStore(logger, File(rootDir, "repo_fingerprint.db")),
+        )
+        try {
+            assertTrue(engine.analyzeOnDemand(paths).isReady)
+            engine.getEffectedFiles(paths)
+            engine.acknowledgeEffectedFilesAfterDeployCommit()
+            constantsFile.writeText(source.replace("$changedConstant = 1", "$changedConstant = 2"))
+            assertTrue(engine.analyzeOnDemand(listOf(constantsFile.toStdPath())).isReady)
+            val effected = engine.getEffectedFiles(listOf(constantsFile.toStdPath()))
+            val expected = callers.keys.map { File(rootDir, it).toStdPath() }.toSet()
+            assertEquals("companion=$companionName, constant=$changedConstant", expected, effected.map { it.refFilePath }.toSet())
+        } finally {
+            engine.dispose()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `should detect kotlin callers when implicit java interface constants change`() {
         val rootDir = createTempDirectory("const_ref_java_interface")
         File(rootDir, ".git").mkdirs()

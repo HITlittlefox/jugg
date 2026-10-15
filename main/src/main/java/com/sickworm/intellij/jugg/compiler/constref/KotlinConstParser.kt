@@ -11,7 +11,6 @@ import org.jetbrains.kotlin.com.intellij.psi.PsiManager
 import org.jetbrains.kotlin.config.CommonConfigurationKeys
 import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.jetbrains.kotlin.lexer.KtTokens
-import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.KtFile
@@ -438,41 +437,29 @@ class KotlinConstParser(
             "$outerClassName.$name"
         }
         val fqClassName = if (packageName.isBlank()) className else "$packageName.$className"
+        val isCompanion = classOrObject is KtObjectDeclaration && classOrObject.isCompanion()
+        val definitionOwner = if (isCompanion) fqClassName.substringBeforeLast('.') else fqClassName
 
         classOrObject.declarations.filterIsInstance<KtProperty>().forEach { property ->
             if (!property.isVisibleConstDefinition()) {
                 return@forEach
             }
-            definitions += ConstDefinition(
+            val definition = ConstDefinition(
                 filePath = sourcePath,
                 packageName = packageName,
-                fqClassName = fqClassName,
+                fqClassName = definitionOwner,
                 constName = property.name ?: return@forEach,
                 constType = property.typeReference?.text ?: inferTypeFromInitializer(property.initializer?.text),
                 constValue = property.initializer?.text,
             )
-        }
-
-        if (classOrObject is KtClass) {
-            classOrObject.companionObjects.forEach { companion ->
-                companion.declarations.filterIsInstance<KtProperty>().forEach companionProperty@{ property ->
-                    if (!property.isVisibleConstDefinition()) {
-                        return@companionProperty
-                    }
-                    definitions += ConstDefinition(
-                        filePath = sourcePath,
-                        packageName = packageName,
-                        fqClassName = fqClassName,
-                        constName = property.name ?: return@companionProperty,
-                        constType = property.typeReference?.text ?: inferTypeFromInitializer(property.initializer?.text),
-                        constValue = property.initializer?.text,
-                    )
-                }
+            definitions += definition
+            if (isCompanion && name != "Companion") {
+                // Keep the enclosing owner and index the named companion as a source-level alias.
+                definitions += definition.copy(fqClassName = fqClassName)
             }
         }
 
         classOrObject.declarations.filterIsInstance<KtClassOrObject>()
-            .filterNot { it is KtObjectDeclaration && it.isCompanion() }
             .forEach { nested ->
                 collectDefinitionsFromClassOrObject(
                     classOrObject = nested,

@@ -139,7 +139,7 @@ analyzeFiles()
 - 受影响文件查询先定位 definition key，再匹配 latest candidate rows，最后按当前 worktree 还原绝对路径，仅返回本地存在文件。
 - 支持 `queryClassesBySimpleNames` 通过 `simple_class_id + const_name_id` 索引实现点查，避免全表扫描。
 - 使用共享 SQLite 长连接，避免高频建连；latest 版本选择追加 `checksum` 作为稳定 tie-breaker。
-- `PRAGMA schema_version=8`，不兼容时重建；parser 可见性规则或索引语义变化必须 bump version，避免旧库中的 stale definition/candidate 继续参与影响分析。版本 7 可能将省略修饰符的 Java 接口或注解字段缓存为空定义，升级后必须重新解析，不能继续复用对应的 mtime/checksum 分析记录。
+- `PRAGMA schema_version=9`，不兼容时重建；parser 可见性规则或索引语义变化必须 bump version，避免旧库中的 stale definition/candidate 继续参与影响分析。版本 7 可能漏掉 Java 接口或注解的隐式常量；版本 8 及更早版本还可能漏掉 Kotlin 命名 companion 的 owner 别名和 companion 内的嵌套定义。升级后必须重新解析，不能继续复用对应的 mtime/checksum 分析记录。
 - 初始化识别 `SQLITE_CORRUPT` / `SQLITE_NOTADB` / `database disk image is malformed` 等损坏信号时会删除或旁路旧 DB 后重建；若重建或后续 ConstRef runtime 初始化仍失败，上层降级为 no-op，不阻断正常编译/部署。
 
 ### 5.2 `RepoSharedFingerprintStore`
@@ -179,7 +179,7 @@ IO 限频默认只影响后台任务；用户等待链路默认不 sleep：
 ## 6. 隐形约束
 
 - 引用扫描不查询 definitions，也不要求目标 const 已经被扫描；影响查询阶段用变更后的 definition 与 syntax candidate 保守匹配，原则是允许多编译，不能漏编译。
-- companion const 会同时匹配 `Owner.CONST` 与 `Owner.Companion.CONST` 形态。
+- 默认 companion const 会同时匹配 `Owner.CONST` 与 `Owner.Companion.CONST` 形态；命名 companion 额外以 `Owner.Name` 收录同一常量的 source owner 别名，沿用现有 definition key 和 diff 流程，使 `Owner.Name.CONST` 及其别名导入也能触发跟编。解析递归进入 companion，内部嵌套 class/object 保留实际路径，如 `Owner.Companion.Nested` 或 `Owner.Name.Nested`。
 - 同包嵌套 class/object 的限定引用会以相对 owner（如 `Outer.Inner.CONST`）匹配定义侧的全限定 owner。
 - `const` 被降级为普通 `val` 或删除时，`removedDefinitionKeys` 会继续命中旧候选索引。
 - `awaitAnalysis()` 成功条件是目标文件 `analyzedAt >= 等待开始时间`；full scan ready 不再阻塞编译。
@@ -201,6 +201,7 @@ IO 限频默认只影响后台任务；用户等待链路默认不 sleep：
 |---|---|
 | `constRefEffectedSourcePaths` 为空 | `DeployFileManager.getRecompileFiles()` 是否传入 changed source；`DeployDataGenerator` 的 `constRefEffectProvider.getEffectedFiles()` |
 | Java 接口常量改值后只编译定义文件 | 检查 `JavaConstParser` 是否按接口字段的隐式 `static final` 收录定义；省略 `final` 不应导致漏识别。版本 7 缓存需升级重建，不能只改 parser 后沿用空定义快照。 |
+| Kotlin companion 常量改值后部分使用方未跟编 | 检查命名 companion 的 source owner 别名，以及 companion 内嵌套 class/object 的定义是否收录；版本 8 及更早缓存需升级重建。 |
 | 结果疑似滞后 | `ConstRefEngine.awaitAnalysis()`，日志 `analysis not ready` / `awaitAnalysis timeout` 的 `unreadyPathCount` |
 | 删除或 `const -> val` 未触发重编 | `ConstRefChangeTracker` 的 removed keys，`ConstRefImpactResolver.getEffectedFiles()` |
 | 空白改动触发大量重编译 | `ConstRefChangeTracker.consumeDefinitionDiff()` 是否产生 changed keys |
@@ -224,11 +225,11 @@ IO 限频默认只影响后台任务；用户等待链路默认不 sleep：
 | 测试文件 | 重点验证 |
 |---|---|
 | `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/ConstRefEngineTest.kt` | 编辑态延迟、await 冲刷、删除清理、removed keys、full scan 不阻塞就绪、on-demand 降级。 |
-| `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/ConstRefIntegrationTest.kt` | 冷启动 full scan、companion const、同包嵌套 object const、Java 接口隐式常量变化后命中 Kotlin when/回调引用方、未变常量引用方不误报。 |
+| `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/ConstRefIntegrationTest.kt` | 冷启动 full scan、默认/命名 companion 及别名引用、companion 内嵌套 object、同包嵌套 object const、Java 接口隐式常量变化后命中 Kotlin when/回调引用方、未变常量引用方不误报。 |
 | `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/ConstRefAnalyzerTest.kt` | Java/Kotlin parser 并发访问串行化。 |
 | `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/JavaConstParserTest.kt` | Java 定义/引用解析、接口与注解隐式常量、嵌套普通类字段边界、忽略注释/字符串。 |
 | `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/KotlinConstParserTest.kt` | Kotlin alias/星号导入、同包解析、忽略注释/字符串。 |
-| `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/ConstRefCacheDatabaseTest.kt` | DB upsert/query、mtime 映射、cleanup、DB-first 批量查询、版本 7 空定义分析记录失效。 |
+| `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/ConstRefCacheDatabaseTest.kt` | DB upsert/query、mtime 映射、cleanup、DB-first 批量查询、版本 7/8 旧分析记录及 mtime/checksum 缓存失效。 |
 | `main/src/test/java/com/sickworm/intellij/jugg/compiler/constref/RepoSharedFingerprintStoreTest.kt` | mtime 命中、中段变化 miss、worktree 共享、cleanup。 |
 
 ---

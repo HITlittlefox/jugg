@@ -35,47 +35,49 @@ class ConstRefCacheDatabaseTest : ConstRefTempDirCleanupSupport() {
                 }
                 statement.executeQuery("PRAGMA schema_version").use { resultSet ->
                     assertTrue(resultSet.next())
-                    assertEquals(8, resultSet.getInt(1))
+                    assertEquals(9, resultSet.getInt(1))
                 }
             }
         }
     }
 
     @Test
-    fun `should invalidate schema 7 analysis after implicit constant rule change`() {
-        val dbDir = createTempDirectory("const_ref_db_schema_bump")
-        File(dbDir, ".git").mkdirs()
-        val dbFile = File(dbDir, "const_ref_test.db")
-        val sourceFile = File(dbDir, "Commands.java").apply {
-            writeText("interface Commands { int VALUE = 1; }")
-        }
-        val sourcePath = sourceFile.toStdPath()
-        val oldDatabase = ConstRefCacheDatabase(dbFile, logger)
-        try {
-            oldDatabase.upsertFileAnalysis(
-                filePath = sourcePath,
-                lastModified = sourceFile.lastModified(),
-                checksum = 123L,
-                definitions = emptyList(),
-                references = emptyList(),
-            )
-            assertTrue(oldDatabase.hasFileAnalysis(sourcePath, 123L))
-        } finally {
-            oldDatabase.close()
-        }
-        DriverManager.getConnection("jdbc:sqlite:${dbFile.absolutePath}").use { connection ->
-            connection.createStatement().use { statement ->
-                statement.executeUpdate("PRAGMA schema_version = 7")
+    fun `should invalidate stale analysis after constant parser rule changes`() {
+        listOf(7, 8).forEach { oldVersion ->
+            val dbDir = createTempDirectory("const_ref_db_schema_bump")
+            File(dbDir, ".git").mkdirs()
+            val dbFile = File(dbDir, "const_ref_test.db")
+            val sourceFile = File(dbDir, "Commands.kt").apply {
+                writeText("interface Commands { companion object Codes { const val VALUE = 1 } }")
             }
-        }
+            val sourcePath = sourceFile.toStdPath()
+            val oldDatabase = ConstRefCacheDatabase(dbFile, logger)
+            try {
+                oldDatabase.upsertFileAnalysis(
+                    filePath = sourcePath,
+                    lastModified = sourceFile.lastModified(),
+                    checksum = 123L,
+                    definitions = emptyList(),
+                    references = emptyList(),
+                )
+                assertTrue(oldDatabase.hasFileAnalysis(sourcePath, 123L))
+            } finally {
+                oldDatabase.close()
+            }
+            DriverManager.getConnection("jdbc:sqlite:${dbFile.absolutePath}").use { connection ->
+                connection.createStatement().use { statement ->
+                    statement.executeUpdate("PRAGMA schema_version = $oldVersion")
+                }
+            }
 
-        val database = ConstRefCacheDatabase(dbFile, logger)
-        try {
-            assertFalse(database.hasFileAnalysis(sourcePath, 123L))
-            assertNull(database.getChecksumByLastModified(sourcePath, sourceFile.lastModified()))
-            assertNull(database.getFileCache(sourcePath))
-        } finally {
-            database.close()
+            val database = ConstRefCacheDatabase(dbFile, logger)
+            try {
+                assertFalse(database.hasFileAnalysis(sourcePath, 123L))
+                assertNull(database.getChecksumByLastModified(sourcePath, sourceFile.lastModified()))
+                assertNull(database.getFileCache(sourcePath))
+            } finally {
+                database.close()
+            }
         }
     }
 
