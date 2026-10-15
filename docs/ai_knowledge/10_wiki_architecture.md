@@ -1,6 +1,6 @@
 # Wiki 架构与运行
 
-> 最后核对：2026-09-27
+> 最后核对：2026-10-15
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -24,6 +24,8 @@
 | `.github/workflows/wiki-pages.yml` | `main` 分支 Wiki 变更触发 GitHub Pages 构建与发布，部署成功后通知 IndexNow。 |
 | `docs/wiki/scripts/submit-indexnow.mjs` | 从本次变更的 Markdown 路径计算 Wiki URL，首次接入和手工发布时从仓库内公开页面批量提交。 |
 | `docs/wiki/public/08a7eb96f7af6347462ab624ddacefa6.txt` | GitHub Pages `/jugg/` 路径下的 IndexNow 站点验证文件。 |
+| `docs/wiki/public/robots.txt` | 保持公开文档可抓取，排除根路径与 `/jugg/` 路径下的 dev 页面；只有部署在主机根目录时才是有效爬虫规则。 |
+| `docs/wiki/public/llms.txt` | 中英文共用的精简文档索引，提供产品定位、使用边界和对应语言的公开文档链接。 |
 | `.github/workflows/release.yml` | 版本 tag 触发正式 GitHub Release；仅 tag commit 已包含在 `main` 时构建，避免 develop tag 发布正式包。 |
 | `.github/workflows/canary.yml` | 仅手工触发，检查触发本次运行的分支；仅在其 HEAD 与 `canary-nightly` tag 不同时构建，并更新 Canary prerelease、插件包和 SHA-256。 |
 | `.github/workflows/dev.yml` | 仅手工触发的构建验证；按 `<versionName>-dev.<日期>.<run number>` 构建被触发 ref，并更新 `dev-latest` 滚动 prerelease、`jugg-dev.zip` 与 SHA-256。 |
@@ -210,6 +212,21 @@ GitHub Pages 发布验证：
 本地构建后可先运行 `INDEXNOW_ALL=true node docs/wiki/scripts/submit-indexnow.mjs --dry-run` 查看全量 URL，不会发送请求。发布后检查密钥文件可访问，并在 `Notify IndexNow of Wiki changes` 步骤确认提交响应；如该步骤失败，Pages 部署已完成，需按日志修正后重跑工作流。
 
 ---
+
+### 8.2 爬虫规则与 AI 文档索引
+
+`public/robots.txt` 与 `public/llms.txt` 由 VitePress 原样复制到构建产物根目录。两种部署方式的访问地址为：
+
+| 部署方式 | robots 文件 | AI 文档索引 |
+|---|---|---|
+| GitHub Pages | `/jugg/robots.txt` | `/jugg/llms.txt` |
+| 后台根路径 | `/robots.txt` | `/llms.txt` |
+
+爬虫只从主机根目录读取 `robots.txt`。GitHub Pages 项目目录内的副本不能控制 `tencentmusic.github.io` 的抓取规则；若要在该主机生效，需由主机根站点维护者合并规则，不覆盖其他项目的配置。后台根路径部署可直接使用该文件。通配 user-agent 保持公开文档、静态资源和索引可抓取，dev 路径分别覆盖根路径和 `/jugg/` 前缀；production build 仍通过 `srcExclude` 排除 dev 页面。
+
+`llms.txt` 按 [llms.txt 提案](https://github.com/AnswerDotAI/llms-txt/blob/main/nbs/index.qmd) 使用 Markdown，保留产品摘要、使用边界、中英文成对文档链接和可选外部入口。它是检索辅助索引，不是访问控制文件，也不保证被搜索引擎收录或 AI 推荐。当前链接使用已有公开 HTML 页面，不生成或引用不存在的 Markdown 下载地址。索引不复制版本矩阵或精确性能数字，这些事实由对应正文页面维护。
+
+站点配置通过 `rel="describedby"` 链接声明索引位置，路径随 `JUGG_WIKI_BASE` 变化。索引内文档链接与现有 canonical、sitemap 保持一致，统一指向 GitHub Pages。修改时检查中英文条目顺序和含义一致、所有链接都有有效目标，并分别构建默认根路径和 `/jugg/` 路径，确认两份文本及页面中的索引链接正确输出。
 
 ## 9. 后台发布约定
 

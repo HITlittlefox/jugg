@@ -644,6 +644,7 @@ export default defineConfig({
   title: 'Jugg Wiki',
   description: 'User documentation for Jugg',
   head: [
+    ['link', { rel: 'describedby', href: `${wikiBase}llms.txt`, type: 'text/plain' }],
     ['script', { async: '', src: `https://www.googletagmanager.com/gtag/js?id=${GA_ID}` }],
     [
       'script',
