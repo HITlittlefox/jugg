@@ -146,7 +146,7 @@ class ARouterJuggAptProcessorTest {
             module.buildPathInfo.kotlinClassPath.apply { mkdirs() })
         val checkpoint = File(context.incrementalDataDir, "arouter/routes/debug")
         val gradle = File(temporary.root, "build/generated/ksp/debug")
-        File(checkpoint, "sources").copyRecursively(gradle)
+        File(checkpoint, "sources").copyRecursively(gradle, overwrite = true)
         checkpoint.deleteRecursively()
         whenever(context.getGeneratedSourcePaths(any())).thenReturn(listOf(gradle))
         module = module.copy(sourceDirs = module.sourceDirs + File(gradle, "kotlin"))
@@ -156,16 +156,19 @@ class ARouterJuggAptProcessorTest {
         assertTrue(updated.any { it.readText().contains("/demo/latest") && it.readText().contains("/demo/untouched") })
         assertFalse(updated.any { it.readText().contains("/demo/first") })
         val before = updated.associate { it.path to it.readText() }
+        val ideBefore = gradle.walkTopDown().filter { it.isFile }.associate { it.path to it.readText() }
         module = module.copy(kspInfo = module.kspInfo!!.copy(arguments = mapOf("MODULE_NAME" to "routes")))
         updateModule()
         assertFailsWith<JuggAptFatalException> { generate() }
         assertEquals(before, updated.associate { it.path to it.readText() })
+        assertEquals(ideBefore, gradle.walkTopDown().filter { it.isFile }.associate { it.path to it.readText() })
         module = module.copy(kspInfo = module.kspInfo!!.copy(arguments = mapOf("AROUTER_MODULE_NAME" to "routes")))
         updateModule()
         kotlin.writeText(kotlin.readText().replace("/demo/latest", "/other/latest"))
         File(common, "Other.kt").delete()
         assertFailsWith<JuggAptFatalException> { generate() }
         assertEquals(before, updated.associate { it.path to it.readText() })
+        assertEquals(ideBefore, gradle.walkTopDown().filter { it.isFile }.associate { it.path to it.readText() })
     }
 
     private fun configureProjectKsp(ksp2: Boolean): File {
@@ -204,6 +207,73 @@ class ARouterJuggAptProcessorTest {
         assertEquals(3, generated.size)
         assertTrue(generated.any { it.readText().contains("/demo/first") })
         assertTrue(generated.all { it.isFile })
+    }
+
+    @Test
+    fun generatedJavaUpdatesIdeSourcesWithoutReplacingOtherProcessorOutputs() {
+        module = module.copy(buildPathInfo = module.buildPathInfo.copy(buildDirRelativePath = "custom-build"))
+        updateModule()
+        val target = File(module.buildPathInfo.generatedSourcePath, "ap_generated_sources/debug/out")
+        val unrelated = File(target, "OtherProcessor.java").apply { parentFile.mkdirs(); writeText("class OtherProcessor {}") }
+        val otherVariant = File(module.buildPathInfo.generatedSourcePath, "ap_generated_sources/release/out/Untouched.java")
+            .apply { parentFile.mkdirs(); writeText("class Untouched {}") }
+        val root = File(context.incrementalDataDir, "arouter/routes/debug/sources")
+        val first = generate()
+        first.forEach { assertEquals(it.readText(), File(target, it.relativeTo(root).path).readText()) }
+        source = writeSource("@Route(path = \"/demo/latest\")")
+        val latest = generate()
+        latest.forEach { assertEquals(it.readText(), File(target, it.relativeTo(root).path).readText()) }
+        assertTrue(latest.any { it.readText().contains("/demo/latest") })
+        assertEquals("class OtherProcessor {}", unrelated.readText())
+        assertEquals("class Untouched {}", otherVariant.readText())
+    }
+
+    @Test
+    fun kaptProjectMirrorsGeneratedJavaToItsExistingIdeRoot() {
+        module = module.copy(kaptDependencies = module.annotationProcessorDependencies, annotationProcessorDependencies = emptyList())
+        updateModule()
+        val target = File(module.buildPathInfo.generatedSourcePath, "source/kapt/debug")
+        whenever(context.getGeneratedSourcePaths(any())).thenReturn(listOf(target))
+        val root = File(context.incrementalDataDir, "arouter/routes/debug/sources")
+        generate().forEach { assertEquals(it.readText(), File(target, it.relativeTo(root).path).readText()) }
+        assertFalse(File(module.buildPathInfo.generatedSourcePath, "ap_generated_sources/debug/out").exists())
+    }
+
+    @Test
+    fun projectKsp1MirrorsSourcesToTheIdeSourceRoot() = projectKspMirrorsIdeSources(false)
+
+    @Test
+    fun projectKsp2MirrorsSourcesToTheIdeSourceRoot() = projectKspMirrorsIdeSources(true)
+
+    private fun projectKspMirrorsIdeSources(ksp2: Boolean) {
+        configureProjectKsp(ksp2)
+        val target = File(module.buildPathInfo.generatedSourcePath, "ksp/android/androidDebug")
+        val kotlinRoot = File(target, "kotlin").apply { mkdirs() }
+        module = module.copy(sourceDirs = module.sourceDirs + kotlinRoot)
+        updateModule()
+        val unrelated = File(kotlinRoot, "OtherProcessor.kt").apply { writeText("class OtherProcessor") }
+        val root = File(context.incrementalDataDir, "arouter/routes/debug/sources")
+        generate().forEach { assertEquals(it.readText(), File(target, it.relativeTo(root).path).readText()) }
+        assertEquals("class OtherProcessor", unrelated.readText())
+    }
+
+    @Test
+    fun ideSourceSyncFailureWarnsAndStillCompilesRoutesToDex() {
+        val target = File(module.buildPathInfo.generatedSourcePath, "ap_generated_sources/debug/out")
+        target.parentFile.mkdirs()
+        target.writeText("blocked generated source directory")
+        val logger = org.mockito.kotlin.spy(context.logger)
+        whenever(context.logger).thenReturn(logger)
+        configureSourceCompilation()
+        val flow = SourceCompiler(context, object : Disposable { override fun dispose() = Unit })
+        val result = flow.compile(CompileTask(listOf(source), File(temporary.root, "sync-failure-dex"), CompileStatusHolder.DEFAULT))
+        assertTrue(result.isAllSuccess, result.failedFiles.toString())
+        assertTrue(result.outputs.any { it.type == com.sickworm.intellij.jugg.compiler.CompileOutput.Type.Dex && it.file.name.contains("ARouter") })
+        assertEquals(setOf("/demo/first"), resolvedRoutes())
+        assertEquals("blocked generated source directory", target.readText())
+        org.mockito.kotlin.verify(logger).warn(org.mockito.kotlin.argThat<String> {
+            contains("ARouter") && contains("IDE") && contains(module.name) && contains("continues")
+        }, any<Throwable>())
     }
 
     @Test

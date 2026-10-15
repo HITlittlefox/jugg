@@ -171,6 +171,7 @@ class ARouterJuggAptProcessor : BaseJuggAptProcessor() {
             val removed = prepared.priorNames - outputs.map { generatedIdentity(it) }.toSet()
             check(removed.isEmpty()) { "ARouter generated classes were removed (${removed.joinToString()}); run a full Gradle build" }
             checkpoint.publish(generated)
+            syncGeneratedSources(context, module, checkpoint.sourceRoot, names, ksp)
             // Old input signatures are no longer a baseline; comparison uses current business classes.
             listOf("inputs.json", "checkpoint.txt", "inputs.pending", "checkpoint.pending").forEach { name ->
                 val obsolete = File(checkpoint.folder, name)
@@ -187,5 +188,34 @@ class ARouterJuggAptProcessor : BaseJuggAptProcessor() {
             context.logger.info("ARouter processor finished for ${module.name} in " +
                     "${String.format(Locale.ROOT, "%.2f", seconds)} seconds")
         }
+    }
+
+    /** Mirrors only current outputs for IDE navigation; compilation keeps using the published sources. */
+    private fun syncGeneratedSources(context: ICompileContext, module: ModuleInfo, sourceRoot: File,
+        names: List<String>, ksp: Boolean) {
+        val generatedRoot = module.buildPathInfo.generatedSourcePath
+        try {
+            val target = ideGeneratedSourceDir(context, module, names, ksp)
+            names.forEach { name -> File(sourceRoot, name).copyTo(File(target, name), overwrite = true) }
+        } catch (failure: Exception) {
+            context.logger.warn("Failed to update ARouter generated sources for IDE in ${module.name}/${module.buildVariant} at $generatedRoot; " +
+                    "compilation continues with Jugg generated sources", failure)
+        }
+    }
+
+    private fun ideGeneratedSourceDir(context: ICompileContext, module: ModuleInfo, names: List<String>, ksp: Boolean): File {
+        val generatedRoot = module.buildPathInfo.generatedSourcePath
+        if (ksp) {
+            val kspRoot = File(generatedRoot, "ksp").canonicalFile.toPath()
+            return module.sourceDirs.firstOrNull { it.name in listOf("java", "kotlin") &&
+                it.canonicalFile.toPath().startsWith(kspRoot) }?.parentFile
+                ?: File(generatedRoot, "ksp/${module.buildVariant}")
+        }
+        val roots = context.getGeneratedSourcePaths(module).filter {
+            it.canonicalFile.toPath().startsWith(generatedRoot.canonicalFile.toPath())
+        }
+        return roots.firstOrNull { root -> names.any { File(root, it).isFile } }
+            ?: File(generatedRoot, if (module.kaptDependencies.isNotEmpty()) "source/kapt/${module.buildVariant}"
+                else "ap_generated_sources/${module.buildVariant}/out")
     }
 }

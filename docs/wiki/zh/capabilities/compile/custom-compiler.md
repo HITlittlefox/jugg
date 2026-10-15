@@ -33,6 +33,8 @@ ARouter 的 `@Route`、`@Autowired`、`@Interceptor` 已有内置增量处理，
 
 含 Kotlin 的模块在生成时纳入完整 Java/Kotlin 业务源码，因此新 Kotlin 类型即使没有 ARouter 注解、尚未生成 class，也能参与本轮类型解析。使用 APT/KAPT 时，混合模块通过 KAPT 完成生成，支持 Kotlin typealias 导入；纯 Java 模块使用 Java 注解处理路径。使用 KSP 时，Jugg 运行项目版本的 KSP1 compiler plugin 或 KSP2 Analysis API 引擎，透传当前变体参数，并纳入 commonMain/androidMain 输入；只消费本轮成功生成物。两条路径均仅运行选定的 ARouter processor；同时声明两种 ARouter 处理器时明确失败。生成成功后，产物才进入后续源码编译。
 
+ARouter 生成成功且生成类集合检查通过后，Jugg 会将本轮生成源码同步到当前变体的生成源码目录，供 IDE 查看与跳转。同步只覆盖本轮文件，保留其他处理器的产物。同步失败时打印 warn，编译继续使用 Jugg 保存的生成源码；IDE 中的部分生成源码可能仍是旧版本。源码同步成功不代表后续编译或部署成功。
+
 只修改路由常量时，已有常量引用分析先把使用方送入跟编。即使使用方文本未变化，Jugg 仍读取当前常量值，确实影响注解结果才重新生成。ARouter 与 Kuikly 在同一轮共用源码读取和语法分析结果。
 
 业务 class 由正常 Java/Kotlin 编译维护。Jugg 按声明身份及源码归属关联同文件多类、嵌套类和移动后的声明；新增声明按空旧输入比较。全部实际注解属性及默认值都参与比较，包括 `name`、`desc` 和定制的 `app`；即使不同输入最终生成相同代码，也允许重新执行处理器。普通 ARouter runtime import 和已有部署 overlay 不会单独触发生成或告警。

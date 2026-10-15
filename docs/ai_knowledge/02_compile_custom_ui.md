@@ -1,6 +1,6 @@
 # 编译系统：自定义编译器与编译交互
 
-> 最后核对：2026-10-13
+> 最后核对：2026-10-15
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -107,6 +107,8 @@ KSP 产物复用同一 checkpoint 和 failClosed 边界；生成类身份按 pac
 `AnnotationProcessorRunner.generate()` 对混合 Java/Kotlin 模块使用原生 KAPT，对纯 Java 模块使用 javac，均只执行选定的项目处理器。完整聚合输入进入同一次生成，产物先留在临时目录，成功后由 `GeneratedSourceCheckpoint.publish()` 发布，再交既有 Kotlin/Java 编译链；普通语言编译保持 APT/KAPT 关闭，DataBinding 的既有输出语义不变。
 
 生成源码目录只在完整生成成功后发布；生成类收缩时保留旧目录并要求完整 Gradle 构建，不能将部分索引交给后续源码编译。完整构建清空增量目录后，下一轮重新使用 Gradle 生成物基线。
+
+发布成功后，ARouter 将本轮 Java/Kotlin 源码尽力同步到模块的 Gradle generated source 目录，供 IDE 查看与跳转。APT/KAPT 优先沿用当前生成文件所在的模块生成目录，否则按项目依赖选择 `ap_generated_sources/<variant>/out` 或 `source/kapt/<variant>`；KSP 优先沿用模块源码根中的实际 KSP 输出位置，保留 `java/`、`kotlin/` 布局，否则使用 `ksp/<variant>`。同步只覆盖本轮文件，不清空共享目录；路径解析或复制失败时记录包含模块、目录及异常的 warn，继续使用 Jugg 发布目录参与编译。生成失败或类集合收缩时不执行同步；同步发生在语言编译之前，不代表编译或部署成功。
 
 相关检测或完整聚合输入准备失败时，warn 指明受影响文件及原因，说明“本模块本轮跳过生成，索引可能滞后”，其他处理器和普通编译继续。真实 APT 执行失败、生成类收缩和生成文件直接语言诊断保留 failClosed。正常 Java 编译更新 javaClassPath，Kotlin 更新 kotlinClassPath，这些业务 class 是下一轮比较依据；生成目录、业务 class 和设备部署不是同时提交的事务。检测跳过而普通编译成功时，业务 class 可已新、旧索引仍滞后，不保证再次提交相同输入能够补生成；完整 Gradle 构建可恢复一致状态。
 
