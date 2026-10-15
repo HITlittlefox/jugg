@@ -2,6 +2,7 @@
 
 package com.sickworm.intellij.jugg.compiler.source.kotlin
 
+import com.sickworm.intellij.jugg.logger.JuggLogger
 import kotlinx.metadata.jvm.*
 import java.io.File
 
@@ -55,16 +56,22 @@ class KmModuleMerger {
 
     private val kmModule = KmModule()
     private var version = JvmMetadataVersion.LATEST_STABLE_SUPPORTED
+    private var originalBytes: ByteArray? = null
+    private var preserveOriginal = false
 
     /**
      * merge kotlin module metadata into [kmModule]
      */
     fun merge(kmModuleFile: File) {
+        if (preserveOriginal) return
         val bytes = kmModuleFile.readBytes()
+        if (originalBytes == null) originalBytes = bytes
         val metadata = try {
             KotlinModuleMetadata.read(bytes)
         } catch (e: Exception) {
-            // kotlin_module isEmpty, ignore
+            preserveOriginal = true
+            JuggLogger.getGlobalLogger("KmModuleMerger").warn("Cannot read Kotlin module metadata: $kmModuleFile. " +
+                    "Keeping its original bytes; new top-level declarations may not be resolved.", e)
             return
         }
         val kmModule = metadata.kmModule
@@ -76,7 +83,8 @@ class KmModuleMerger {
      * write kotlin module metadata to file
      */
     fun writeTo(destFile: File, targetVersion: JvmMetadataVersion) {
-        val metadata = KotlinModuleMetadata(kmModule, targetVersion).write()
+        // A compiler invocation can replace the index even when the baseline could not be parsed.
+        val metadata = if (preserveOriginal) checkNotNull(originalBytes) else KotlinModuleMetadata(kmModule, targetVersion).write()
         destFile.also {
             it.parentFile?.mkdirs()
             it.writeBytes(metadata)

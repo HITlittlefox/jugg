@@ -63,6 +63,7 @@
    - 新增领域确实无法归入现有 tag 时，先确定稳定名称及职责，再更新此列表和贡献指南。
 4. 标题优先描述用户场景和可观察结果，不描述内部实现；没有直接用户时，从调用方、维护者、Agent 或运维人员视角描述。`[bugfix]` 默认使用 `[bugfix][module] fix <problem manifestation> when/after/for <scenario>`，不得默认套用 `prevent ... from ...`；`[optimize]` 推荐使用 `[optimize][module] <improvement outcome> when/for <scenario>`，不得仅通过措辞把实际 bugfix 归类为 optimize。
 5. 标题无法充分说明原因和实现时，在空行后的正文中使用自然语言补充；仅在正文较长时使用 `Problem:`、`Cause:`、`Solution:` 等小标题。
+6. 本次提交如有对应 Github issue，则在 commit message 最后增加 "Fixes #{issue_id}" 关联。
 
 ## PR 共建规范
 
