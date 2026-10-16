@@ -87,7 +87,9 @@ class JuggDeployer(
             val apkList = asDeployerCompat.parseApks(apks)
             if (scriptRunner != null) {
                 val actualApks = runWithOfflineRetry("verify custom APK install", deviceAdb, logger) {
-                    asDeployerCompat.dumpApks(installSession, apkList)
+                    logInstallerCall("dumpApks(customInstall)", deviceAdb, logger) {
+                        asDeployerCompat.dumpApks(installSession, apkList)
+                    }
                 }
                 verifyApksMatch(apkList, actualApks, asDeployerCompat, logger)
                 clearOverlayAfterCustomInstall(packageName)
@@ -306,12 +308,14 @@ class JuggDeployer(
         // Perform the swap.
         try {
             val overlayId = runWithOfflineRetry("optimistic swap", deviceAdb, logger) {
-                asDeployerCompat.optimisticSwap(
-                    installSession, redefiners, packageName,
-                    argRestart, pids, arch, overlayUpdate,
-                    device, logger,
-                    data.isPushOverlayOnly,
-                )
+                logInstallerCall("optimisticSwap(pushOverlayOnly=${data.isPushOverlayOnly})", deviceAdb, logger) {
+                    asDeployerCompat.optimisticSwap(
+                        installSession, redefiners, packageName,
+                        argRestart, pids, arch, overlayUpdate,
+                        device, logger,
+                        data.isPushOverlayOnly,
+                    )
+                }
             }
             val costTime = System.currentTimeMillis() - startTime
             logger.info("after deploy, cost: ${costTime}ms, overlay id: ${overlayId.sha}, is base install: ${overlayId.isBaseInstall}, isPushOverlayOnly: ${data.isPushOverlayOnly}")
@@ -404,7 +408,9 @@ class JuggDeployer(
             // verify that we are actually looking at the same APK cached in the database.
             val cachedResults = entry.apks
             val actualResults = runWithOfflineRetry("verify cache", adb, logger) {
-                asDeployerCompat.dumpApks(installSession, entry.apks)
+                logInstallerCall("dumpApks(verifyCache)", adb, logger) {
+                    asDeployerCompat.dumpApks(installSession, entry.apks)
+                }
             }
             verifyApksMatch(cachedResults, actualResults, asDeployerCompat, logger)
             logger.info("verifyCache success")
@@ -437,6 +443,27 @@ class JuggDeployer(
                     throw asDeployerCompat.overlayIdMismatch()
                 }
                 i++
+            }
+        }
+
+        /** Logs installer boundary timing without changing exceptions or retry behavior. */
+        private inline fun <T> logInstallerCall(
+            phase: String,
+            adb: IDeviceAdb,
+            logger: AdbLogWrapper,
+            block: () -> T,
+        ): T {
+            val start = System.nanoTime()
+            logger.logger.debug("Installer phase=$phase started, device=${adb.serial}")
+            try {
+                val result = block()
+                logger.logger.debug("Installer phase=$phase succeeded, device=${adb.serial}, " +
+                        "cost=${(System.nanoTime() - start) / 1_000_000}ms")
+                return result
+            } catch (e: Exception) {
+                logger.logger.warn("Installer phase=$phase failed, device=${adb.serial}, " +
+                        "cost=${(System.nanoTime() - start) / 1_000_000}ms, reason=$e")
+                throw e
             }
         }
 

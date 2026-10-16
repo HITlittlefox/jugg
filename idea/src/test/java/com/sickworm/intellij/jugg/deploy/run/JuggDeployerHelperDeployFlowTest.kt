@@ -33,12 +33,40 @@ import org.mockito.kotlin.any
 import org.mockito.kotlin.whenever
 import org.mockito.MockedConstruction
 import java.io.File
+import java.lang.reflect.InvocationTargetException
+import java.nio.channels.InterruptedByTimeoutException
 
 /**
  * L2 deploy-flow via [com.sickworm.intellij.jugg.deploy.run.deployflow.VirtualDeployDevice].
  * Spec: docs/task/2026-05/jugg_deploy_flow_virtual_device.md, jugg_deployer_helper_deploy_flow_test_plan.md §5.1
  */
 class JuggDeployerHelperDeployFlowTest {
+
+    @Test
+    fun `wrapped installer socket timeout retries then recovers with one reinstall`() {
+        val fixture = DeployFlowMockBackend.buildFixture(DeployFlowCaseId.DF_L2_006)
+        fixture.compatBoundary.optimisticSwapFailure = InvocationTargetException(InterruptedByTimeoutException())
+
+        val result = fixture.helper.deploy(fixture.deployOptions)
+
+        assertTrue("deploy failed: ${result.failedReason}", result.isSuccess)
+        assertEquals(3, fixture.compatBoundary.optimisticSwapInvokeCount)
+        assertEquals(1, fixture.virtualDevice.installInvokeCount)
+        assertTrue(fixture.virtualDevice.hasDirectOverlayApply())
+        Mockito.verify(fixture.deployFileManager).resetAfterReinstall()
+    }
+
+    @Test
+    fun `unrelated reflection failure does not enter timeout recovery`() {
+        val fixture = DeployFlowMockBackend.buildFixture(DeployFlowCaseId.DF_L2_006)
+        fixture.compatBoundary.optimisticSwapFailure = InvocationTargetException(NoSuchMethodException("overlayInstall"))
+
+        val result = fixture.helper.deploy(fixture.deployOptions)
+
+        assertFalse(result.isSuccess)
+        assertEquals(1, fixture.compatBoundary.optimisticSwapInvokeCount)
+        assertEquals(0, fixture.virtualDevice.installInvokeCount)
+    }
 
     @Test
     fun `recover reinstall executes configured script and stops on script failure`() {

@@ -253,7 +253,7 @@ reinstall recover 不恢复历史资源类型：重装已经停止或替换了�
 | 默认 installer 的 `INSTALL_FAILED_INVALID_APK` | uninstall 当前 applicationId 集合后重新 install；普通 App 已成功执行的自定义脚本也会再次执行。 |
 | 用户限制、设备丢失、APK install 失败、embedded APK 冲突 | 停止 fallback，向上暴露失败。 |
 
-timeout 规则：overlay 数超过首片阈值时先降低 slice size；否则前两次等待后重试，第三次尝试 reinstall，超过次数停止。
+timeout 规则：`MessagePipeWrapper read() timeout` 和 AS Installer 的 `java.nio.channels.InterruptedByTimeoutException` 共用同一计数链路。后者可能被 `InvocationTargetException` 包装且没有 message，`JuggDeployerHelper` 从异常 cause 中提取类型作为失败原因，避免只得到反射失败或通用部署失败文案；无明确超时信号的通用失败不进入这条链路。overlay 数超过首片阈值时先降低 slice size；否则前两次等待 5 秒后重试，第三次尝试 reinstall，超过次数停止。超时 warning 包含实际失败原因；reinstall 不主动卸载应用，卸载仍仅由 `INSTALL_FAILED_INVALID_APK` 恢复分支触发。
 
 ---
 

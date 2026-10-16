@@ -40,6 +40,7 @@ import com.sickworm.intellij.jugg.project.dependency.IDependencyChangeManager
 import com.sickworm.intellij.jugg.server.JuggServer
 import kotlinx.coroutines.runBlocking
 import java.io.File
+import java.nio.channels.InterruptedByTimeoutException
 
 /**
  * Create a deploy task.
@@ -241,9 +242,12 @@ class JuggDeployerHelper(
         var successfulSliceCount = 0
         dataList.forEachIndexed { i, splitData ->
             if (dataList.size > 1) TimeLogger.start("deploy_to_device_slice$i")
+            val classes = splitData.newClasses + splitData.hotFixModifiedClasses + splitData.hotReloadModifiedClasses
             logger.debug("deploy_to_device_slice$i, " +
-                    "classes: ${splitData.newClasses.size + splitData.hotFixModifiedClasses.size + splitData.hotReloadModifiedClasses.size}, " +
-                    "overlays: ${splitData.overlays.size}")
+                    "classes: ${classes.size}, classBytes=${classes.sumOf { it.content.size.toLong() }}, " +
+                    "maxClassBytes=${classes.maxOfOrNull { it.content.size } ?: 0}, " +
+                    "overlays: ${splitData.overlays.size}, overlayBytes=${splitData.overlays.sumOf { it.content.size.toLong() }}, " +
+                    "maxOverlayBytes=${splitData.overlays.maxOfOrNull { it.content.size } ?: 0}")
             try {
                 val isSliceSkipExceptOverlayCheck = isSkipExceptOverlayCheck || i != 0
                 val launchContext = baseLaunchContext.withSkipExceptOverlayCheck(isSliceSkipExceptOverlayCheck)
@@ -596,7 +600,10 @@ class JuggDeployerHelper(
             if (isOutOfMemoryFailure(e)) {
                 return handleOutOfMemoryFailure(deployOptions, deployData, costTime(), e)
             }
-            val reason = e.message ?: e.cause?.message ?: e.toString()
+            // Installer reflection can wrap a socket timeout without an exception message.
+            val socketTimeout = generateSequence<Throwable>(e) { it.cause }
+                .take(16).firstOrNull { it is InterruptedByTimeoutException }
+            val reason = socketTimeout?.toString() ?: e.message ?: e.cause?.message ?: e.toString()
             val retryReason = deployOptions.retryReason
             val isCustomInstallScriptFailure = e is CustomApkInstallScriptException
             val canRetry = !isCustomInstallScriptFailure &&
@@ -923,9 +930,10 @@ class JuggDeployerHelper(
         val maxOverlayBytes = deployData.overlays.maxOfOrNull { it.content.size } ?: 0
         val runtime = Runtime.getRuntime()
         val heapUsedBytes = runtime.totalMemory() - runtime.freeMemory()
+        val apkSizes = deployData.apks.flatMap { it.files }.joinToString { "${it.apkFile.name}:${it.apkFile.length()}" }
         logger.debug("Deploy payload memory: overlayCount=${deployData.overlays.size}, " +
                 "overlayBytes=$overlayBytes, maxOverlayBytes=$maxOverlayBytes, " +
-                "heapUsedBytes=$heapUsedBytes, heapMaxBytes=${runtime.maxMemory()}")
+                "heapUsedBytes=$heapUsedBytes, heapMaxBytes=${runtime.maxMemory()}, apkSizes=[$apkSizes]")
     }
 
     private fun embeddedToApk(deployOptions: DeployOptions): DeployTaskResult {
