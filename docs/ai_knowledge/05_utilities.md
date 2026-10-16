@@ -21,7 +21,7 @@
 | APK 签名脚本 | `main/src/main/java/com/sickworm/intellij/jugg/apk/CustomApkSignScriptRunner.kt` | 用项目脚本替换 `ApkFileModifier` 的默认 keystore 签名，透传待签名 APK 绝对路径并转发脚本输出 |
 | Git worktree | `main/src/main/java/com/sickworm/intellij/jugg/git/GitManager.kt`、`WorktreeFileRepository.kt` | Git 变更识别；worktree 下把 HEAD 操作定向到 worktree-local HEAD |
 | 平台桥接 | `main/src/main/java/com/sickworm/intellij/jugg/platform/IPlatformApi.kt`、`PlatformApi.kt` | core 层调用 UI、设备、Gradle、MCP host 能力的抽象边界 |
-| 远端服务 | `main/src/main/java/com/sickworm/intellij/jugg/server/JuggServer.kt`、`PublicUpdateChecker.kt`、`JuggServerChooser.kt`、`JuggEventLocalStore.kt`、`JuggRemoteCompileApplier.kt` | 上报、版本检测、server failover、全局本地事件记录与远端编译 apply；缺少内置配置时仅明确设置的自定义服务器可启用后台，无自建后台时自动通过 PublicUpdateChecker 并发向 JetBrains Marketplace 与 GitHub 查询公网更新 |
+| 远端服务 | `main/src/main/java/com/sickworm/intellij/jugg/server/JuggServer.kt`、`PublicUpdateChecker.kt`、`JuggServerChooser.kt`、`JuggEventLocalStore.kt`、`JuggRemoteCompileApplier.kt` | 上报、版本检测、server failover、全局本地事件记录与远端编译 apply；缺少内置配置时继承此前内网包保存的服务器列表，显式自定义服务器优先，无自建后台时自动通过 PublicUpdateChecker 并发向 JetBrains Marketplace 与 GitHub 查询公网更新 |
 | 问题诊断 | `main/src/main/java/com/sickworm/intellij/jugg/diagnostics/IssueReportBundleBuilder.kt`、`IssueReportUploader.kt` | 白名单诊断包、按目标决定日志脱敏、manifest 校验与单一目标上传（公共服务 HTTPS，后台 HTTP/HTTPS） |
 | 配置模型 | `main/src/main/java/com/sickworm/intellij/jugg/ide/bean/JuggSettings.kt`、`JuggGradleCompileOptions.kt` | 持久化设置、运行参数、Gradle task 派生与远端编译参数 |
 
@@ -62,7 +62,9 @@ JuggManager 初始化
 - `TimeLogger.start/end` 以字符串 tag 配对；同一 tag 被跨阶段复用会污染耗时判断，新增高频埋点前先确认 tag 唯一性。
 - `TaskRunnerManager.runTaskSafe` 仅在后台任务失败时上报任务名、耗时与异常信息；成功任务不发送事件。
 - 每次 `JuggServer.report()` 都先 Best-effort 写入全局 `action.db`（默认 `~/.jugg/action.db`）；无服务器或远端失败不影响本地记录，本地写入失败也不阻止远端上报。
-- 普通 `buildPlugin` 不携带 `config/servers.json`；`buildPluginInternal` 才校验并打包本地忽略文件。缺少内置配置时，历史自动选服地址无效，只有用户明确设置的 Custom Server 继续生效。
+- 普通 `buildPlugin` 不携带 `config/servers.json`；`buildPluginInternal` 才校验并打包本地忽略文件。`JuggServerChooser` 仅在 `hasAvailableServer()` 或 `updateServer()` 原有默认规则读取点按需加载列表，不在对象创建时初始化；读取当前非空内置列表时写入 IDE 全局 `JuggSettings.inheritedServerRulesJson`，缺少内置列表时恢复该列表。该字段为 internal，后台 defaultSettings 无法反射写入。项目下发的 `servers` 优先于默认列表，显式空列表不回退；用户明确设置的 Custom Server（`serverExpireTimeMill=-1`）仍优先，清空后恢复默认选服。继承列表继续使用原有过期刷新和故障切换，不把自动选服改成 Custom Server。保存失败仍使用当前内置列表；继承数据读取或解析失败时记录 debug 并舍弃继承，其他路径继续工作。
+- 内网配置继承不依赖项目 build 目录，但要求至少运行一次包含此能力的内网包。全新公开包无保存列表时保持无后台；历史 `serverUrl` 单独存在不作为内网身份依据。继承后台被当前选服器选中后，其事件上报、更新检查与诊断上传规则保持不变。
+- 默认服务器 JSON 的加载来源记录为 debug 日志：包内 `config/servers.json`（含规则数量）、IDE 全局继承配置，或两者均不可用；不打印 JSON 正文。继承配置读取、解析失败仍记录原因。
 - 手动问题报告使用当前选中且可用的后台服务，对其根地址拼接 `/report_issue`，以默认勾选的诊断候选项直接打包上传，不显示文件/地址确认面板；复制结果增加 `Server Url: <后台根地址>`。后台直传允许 HTTP 或 HTTPS，请求失败时不回退公网，结果窗口可对同一 zip、同一目标重试。没有可用后台地址时仍显示确认面板并请求 `https://jugg.sickworm.com/report_issue`，可取消候选项或仅本地保存，公共服务继续仅接受 HTTPS。
 - 后台可通过 `autoUploadFailureLogs` 开启最终失败日志自动上传，并用 `autoUploadFailureLogsExcludeRegex` 排除已知错误。排除正则只对本轮最终错误摘要做包含匹配，不扫描日志全文；空正则不过滤，非法正则按 fail-closed 跳过上传。手动上传向明确设置的 Custom Server 和内置列表自动选出的后台发送 `file`、`project_name`、`username`，两者使用同一规则；公共服务仅接收 `file`。自动上传始终发送 `is_auto_upload=true`、首条非空失败摘要 `failed_reason`、`project_name`、`username`、`plugin_version`、`report_id`，有更长错误内容时发送 `error_detail`。手动和自动上报都将同一目标快照绑定到诊断包；明确设置的 Custom Server 和自动选择的后台均接收未脱敏的 Jugg 日志、logcat、hook 日志与自动上传错误文本，仅无可用后台时的公共服务和本地保存走日志脱敏。公共服务拒绝标记为未脱敏的诊断包，公共服务域名不能配置为未脱敏后台，上传不跟随重定向。manifest 对原文日志标记 `redaction=none`，结构化工程快照的敏感字段无论目标如何始终脱敏。
 - 自动失败诊断包复用手动报告的完整准备流程，包含 `JuggPathManager.logDir` 中按修改时间排序的最近两份真实 `compile_*.log`、环境信息、工程摘要、脱敏工程快照、存在时的 hook 调试日志和 manifest；排除 `compile_latest*` 快捷入口且不采集 adb logcat。仅在存在 `availableServerUrl` 时上传到该后台的 `/report_issue`，允许 HTTP 或 HTTPS；没有可用后台时直接跳过，失败不回退公网。上传异步 Best-effort 执行，失败不重试也不影响 Run 结果。

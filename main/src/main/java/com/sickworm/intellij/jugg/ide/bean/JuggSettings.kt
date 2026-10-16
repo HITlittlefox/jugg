@@ -164,6 +164,7 @@ object JuggSettings {
 
     var serverUrl: String? by propertiesComponent.delegate(defaultValue = null)
     var serverExpireTimeMill: Long by propertiesComponent.delegate(defaultValue = 0L)
+    internal var inheritedServerRulesJson: String by propertiesComponent.delegate(defaultValue = "")
 
     /** Returns recent commands for one remote SSH target and project directory. */
     fun getRemoteCommandHistory(targetKey: String): List<String> {
