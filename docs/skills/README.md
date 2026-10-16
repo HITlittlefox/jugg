@@ -38,7 +38,7 @@ SKILL.md 只负责**路由决策**和**全局共享内容**（CLI Quick Referenc
 | **D1** Skill 是否触发 | 用户提到 Jugg / Android 源码被修改 | Frontmatter description |
 | **D2** 路由到哪个流程 | `hasAutoRunEntry` + `enabledAndroidTest` + 用户意图 | Phase 1 路由树 |
 | **D3** 加载哪些 Reference | 场景 + 当前步骤需求 | Phase 1 Scenario 表 |
-| **D4** 编译失败如何处理 | JSON `status`/`message` + 重试次数 | Build Fallback Chain |
+| **D4** 编译前是否直接回退 / 失败如何处理 | 注解变更、待编译文件的插桩影响 + JSON `status`/`message` + 重试次数 | Mandatory Rules + Build Fallback Chain；边界见 `policy_incremental_compile_limits.md` |
 
 ---
 

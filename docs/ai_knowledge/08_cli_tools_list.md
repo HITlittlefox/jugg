@@ -1,6 +1,6 @@
 # jugg CLI 参数与 MCP 映射
 
-> 最后核对：2026-10-15
+> 最后核对：2026-10-16
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -115,6 +115,8 @@ help 在 `jugg.py` 内直接返回，只读取 `help_registry.py`，不会连接
 2. 递增 `SKILL.md` frontmatter 的 `version`，并更新 `date`
 
 只改脚本不改 `SKILL.md` version，用户更新插件后仍会继续用旧 CLI 和 skill。
+
+Skill 在首次编译前按 `policy_incremental_compile_limits.md` 判断直接回退：本次修改涉及不支持的注解处理变更，或待重新编译文件明确依赖未支持的插桩行为时，说明具体原因后直接运行 `gradle-build`，不先尝试或耗尽增量重试。支持清单区分 Kuikly `@Page` 仅追加注册、Moshi `@JsonClass` 仅 KSP1，以及 Hilt 仅复用已有生成物的入口转换；项目仅存在某个 processor 或插桩插件不构成直接回退条件。该规则属于 Agent 命令选择，不增加插件运行时自动回退。
 
 ---
 

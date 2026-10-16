@@ -74,7 +74,7 @@ Completion means the MCP compile/deploy job has reached a terminal state. The CL
 |---------|---------|-------------|
 | `compile` | Compile modified sources, skip deploy | Default after ordinary source edits, including generic "verify/check modification" |
 | `deploy` | Compile + deploy to device | Need to launch/run app to inspect runtime/UI state, or perform device-side verification |
-| `gradle-build` | Full Gradle compile fallback | After `deploy`/`compile` **retries exhausted and still failed** |
+| `gradle-build` | Full Gradle compile fallback | Direct fallback required by `policy_incremental_compile_limits.md`, or `deploy`/`compile` retries exhausted |
 | `clean-reinstall` | Clear app data(compat with apply changes) + launch device | **Only** for clean APP data |
 | `instrument` | Run androidTest | Verify android test result |
 
