@@ -1,6 +1,6 @@
 # MCP UI 布局验证设计
 
-> 最后核对：2026-10-15
+> 最后核对：2026-10-16
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -80,6 +80,8 @@ view-inspect
 模式选择：未知页面查找交互候选使用 interaction；几何、结构、装饰节点或隐藏状态验证使用 ui。interaction 先删除 invisible/gone 节点及整个子树（不提升其孩子，includeGone=true 也不保留），省略 padding/textColor；其余保留字段与 ui 含义一致。两模式公开虚拟 ID 简写为 `_vid_<hash>`，selector 接受新格式和旧 `_vir_id_` 格式，边界转换保持 App 运行时协议不变。沿用稀疏默认值省略。裁剪不修改 truncated，摘要数量来自实际输出树。
 
 interaction 在普通窗口中保留首个完全越界节点的交互模式字段，将其后代替换为仅含 `jugg_details` 的伪子节点（`View is off-screen; descendants omitted in interaction mode.`）；越界叶节点直接保留。伪节点不是控件，不参与节点或 clickable 统计。部分可见、零面积、后代与窗口相交、后代几何未知或带诊断时不折叠该分支。缺少有效窗口 bounds 或请求 rootLayout 子树时，保留原有语义裁剪，不猜测窗口视口。需要后代细节时使用 `--mode ui --root-layout <id>`；顺序、bounds 和 className 可作为滑动探索线索，滑动后需重新采集确认。
+
+离线人工 review 可直接用浏览器打开 [`tools/layout-dump-viewer.html`](../../tools/layout-dump-viewer.html)，导入 ui / interaction artifact，通过二维线框、节点树、属性与重叠候选检查导出内容。工具按文件声明的单位绘制，不重复换算 density；`jugg_details` 仅作为所属节点的后代省略提示。线框与候选顺序不能证明真实遮挡、祖先裁剪或 Z 轴顺序，子树根也不能确定所属窗口视口；字体、图片与实际可见效果仍需真机或截图核对。操作见 [`tools/README.md`](../../tools/README.md#layout-dump-viewerhtml)。
 
 间距与对齐由 Agent 根据 ui dump 或 `view-locate` 返回的 dp bounds 计算：
 
