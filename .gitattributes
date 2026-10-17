@@ -1,1 +1,7 @@
 docs/wiki/zh/articles/*/index.md whitespace=-blank-at-eol
+
+# Ensure third-party source files maintain LF line endings on all platforms for SHA-256 verification
+third_party/sources/** text eol=lf
+third_party/sources/*.jar binary
+third_party/sources/*.tar.gz binary
+
