@@ -1,3 +1,9 @@
+- version: 3.6.6
+  date: 2026.10.18
+  updates:
+    - "[feature][settings] 支持在升级公开插件版本后自动保留内网默认后台服务配置"
+    - "[optimize][compile] ARouter 注解代码生成后自动同步 IDE 源码目录，避免未识别生成类导致代码报错"
+
 - version: 3.6.5
   date: 2026.10.15
   updates:

@@ -1,3 +1,9 @@
+- version: 3.6.6
+  date: 2026.10.18
+  updates:
+    - "[feature][settings] Retain internal default backend servers after updating to public plugin releases"
+    - "[optimize][compile] Automatically sync generated ARouter sources to IDE source roots to prevent unresolved reference errors"
+
 - version: 3.6.5
   date: 2026.10.15
   updates:
