@@ -3,12 +3,15 @@
 package com.sickworm.intellij.jugg.compiler.source
 
 import com.intellij.openapi.diagnostic.Logger
+import com.sickworm.intellij.jugg.apk.BuildToolsVersionComparator
 import com.sickworm.intellij.jugg.compiler.*
 import com.sickworm.intellij.jugg.ide.bean.JuggSettings
 import com.sickworm.intellij.jugg.project.JuggException
 import com.sickworm.intellij.jugg.project.data.ModuleInfo
 import java.io.File
 import java.io.IOException
+import java.nio.file.FileSystem
+import java.nio.file.FileSystems
 import javax.tools.*
 import javax.tools.JavaCompiler
 
@@ -149,23 +152,51 @@ class JavaCompilerInvoker {
         // compile files
         val objects = compileItems.map { it.fileObject }
 
-        // do compile
-        logCompileCommand(module, cmdOptions, compileItems, logger)
-        
-        val javaTask = try {
-            compiler.getTask(null, fileManager, compileListener, cmdOptions, null, objects)
-        } catch (e: Exception) {
-            logger.error("getTask failed", e)
-            null
-        }
-        
+        val platformFileSystems = mutableListOf<FileSystem>()
         val isSuccess = try {
+            val androidJar = dependencies.firstOrNull { File(it).name == "android.jar" }
+                ?.takeUnless { module.moduleType == ModuleInfo.Type.JavaLibrary }
+            if (androidJar != null) {
+                val isModularSource = (sourceVersion.removePrefix("1.").toIntOrNull() ?: 8) >= 9
+                val platformJars = getAndroidPlatformJars(context, module, File(androidJar), isModularSource, logger)
+                // Android does not provide StringConcatFactory; match AGP's StringBuilder concatenation.
+                cmdOptions.add("-XDstringConcat=inline")
+                if (isModularSource) {
+                    // With no JDK modules, javac still needs java.base supplied by the Android API.
+                    cmdOptions.addAll(listOf("--system", "none"))
+                    platformJars.forEach {
+                        platformFileSystems.add(FileSystems.newFileSystem(it.toPath(), null as ClassLoader?))
+                    }
+                    fileManager.setLocationForModule(
+                        StandardLocation.MODULE_PATH, "java.base", platformFileSystems.map { it.getPath("/") },
+                    )
+                    logger.debug("Java platform java.base: $platformJars")
+                } else {
+                    // Source 8 has no modules; the file-manager API also supports a newer bytecode target.
+                    fileManager.setLocation(StandardLocation.PLATFORM_CLASS_PATH, platformJars)
+                    logger.debug("Java platform boot classpath: $platformJars")
+                }
+            }
+            logCompileCommand(module, cmdOptions, compileItems, logger)
+            val javaTask = try {
+                compiler.getTask(null, fileManager, compileListener, cmdOptions, null, objects)
+            } catch (e: Exception) {
+                logger.warn("getTask failed", e)
+                null
+            }
             javaTask?.call() ?: false
         } finally {
             try {
                 fileManager.close()
             } catch (e: IOException) {
                 logger.warn("Close javac file manager failed", e)
+            }
+            platformFileSystems.asReversed().forEach {
+                try {
+                    it.close()
+                } catch (e: IOException) {
+                    logger.warn("Close Android platform file system failed: $it", e)
+                }
             }
         }
 
@@ -257,6 +288,31 @@ class JavaCompilerInvoker {
                 emptyList(),
             )
         }
+    }
+
+    /** Selects Android platform classes and the compiler-only lambda stubs used by AGP. */
+    private fun getAndroidPlatformJars(
+        context: ICompileContext,
+        module: ModuleInfo,
+        androidJar: File,
+        isModularSource: Boolean,
+        logger: Logger,
+    ): List<File> {
+        val systemModulesJar = File(androidJar.parentFile, "core-for-system-modules.jar")
+        if (isModularSource && systemModulesJar.isFile) {
+            return listOf(systemModulesJar)
+        }
+        val buildToolsDir = File(context.androidHome, "build-tools")
+        val moduleLambdaStubs = module.buildToolsVersion?.let {
+            File(buildToolsDir, "$it/core-lambda-stubs.jar")
+        }
+        val lambdaStubs = moduleLambdaStubs?.takeIf { it.isFile }
+            ?: buildToolsDir.listFiles()?.map { File(it, "core-lambda-stubs.jar") }
+                ?.filter { it.isFile }?.maxByOrNull { BuildToolsVersionComparator(it.parentFile.name) }
+        if (lambdaStubs == null) {
+            logger.debug("Android lambda stubs not found in $buildToolsDir; lambda compilation may fail")
+        }
+        return listOfNotNull(androidJar, lambdaStubs)
     }
 
     private fun logCompileCommand(module: ModuleInfo, options: List<String>, files: List<JavaCompileItem>, logger: Logger) {
