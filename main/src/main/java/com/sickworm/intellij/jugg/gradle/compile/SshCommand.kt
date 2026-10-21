@@ -156,9 +156,6 @@ open class CompileProjectCommand(
     private val finalCompileCommand: String = run {
         var suffix = ""
         if (isNormalGradleCommand) {
-            if (!compileCommand.contains("--console")) {
-                suffix += " " + "--console=plain"
-            }
             suffix += ConfigurationCacheCompatHelper.getDisableArgsIfEnabled(
                 File(localProjectPath), compileCommand, logger)
             suffix += GradleDaemonArgHelper.getDisableArgsIfEnabled(compileCommand)
@@ -166,7 +163,7 @@ open class CompileProjectCommand(
             suffix += libraryTestTasksGradlePropertyArgument()
             suffix += " $injectParam"
         }
-        return@run "$compileCommand$suffix"
+        return@run "${withPlainConsole(compileCommand)}$suffix"
     }
 
     override val baseCommand: String = "cd \"$projectPath\" && $finalCompileCommand"
@@ -209,6 +206,14 @@ open class CompileProjectCommand(
     }
 
     companion object {
+
+        fun withPlainConsole(command: String): String {
+            return if (isNormalGradleCommand(command) && !command.contains("--console")) {
+                "$command --console=plain"
+            } else {
+                command
+            }
+        }
 
         fun isNormalGradleCommand(compileCommand: String): Boolean {
             return compileCommand.matches(Regex(""".*(gradle|gradlew|gradle\.bat|gradlew\.bat)\s+[\w-_ :=.]+"""))
