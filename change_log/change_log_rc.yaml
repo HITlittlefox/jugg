@@ -1,3 +1,21 @@
+- version: 3.5.5
+  date: 2026.10.22
+  updates:
+    - "[feature][compile] Support Kotlin 2.4; fix unresolved extension functions and metadata warnings during incremental compilation in Kotlin 2.4 projects"
+    - "[feature][compile] Support symlinks to files outside the project directory in remote build scenarios"
+    - "[optimize][compile] Use --no-daemon by default for Gradle fallback builds to reduce resident memory; toggle available in control panel"
+    - "[optimize][mcp] Reduce layout-dump read overhead for agents, supporting both interaction and UI modes"
+    - "[optimize][ide] Use plain console output for remote commands to avoid escape sequence interference"
+    - "[optimize][deploy] Improve deploy stability by automatically retrying on installer socket timeouts"
+    - "[optimize][diagnostics] Automatically capture compiler thread dumps when isolated Kotlin incremental compilation times out"
+    - "[bugfix][compile] Fix runtime class cast exceptions caused by stale Binding artifacts when identical DataBinding layouts exist across multiple resource roots"
+    - "[bugfix][compile] Fix crashes on pages with cross-module DataBinding includes after incremental compile due to unmerged baseline dependency mappers"
+    - "[bugfix][compile] Fix ambiguous Module reference errors during incremental compilation of Java code on JDK 9+"
+    - "[bugfix][compile] Fix missing caller recompilation when interface constants or Kotlin companion object constants change"
+    - "[bugfix][project] Fix memory leak caused by unreleased Git index objects after repository queries"
+    - "[bugfix][mcp] Fix missing Compose node content in layout-dump"
+    - "[bugfix][mcp] Fix premature UI request timeouts when layout capture is slow on lower-performance devices"
+
 - version: 3.5.4
   date: 2026.10.13
   updates:

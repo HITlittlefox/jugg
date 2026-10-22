@@ -1,3 +1,21 @@
+- version: 3.5.5
+  date: 2026.10.22
+  updates:
+    - "[feature][compile] 适配 Kotlin 2.4，修复 Kotlin 2.4 项目增量编译时扩展函数无法解析及元数据告警的问题"
+    - "[feature][compile] 支持远程构建场景软链接目录外文件"
+    - "[optimize][compile] gradle build 默认使用 -no-daemon，以减少常驻内存。控制面板支持开关"
+    - "[optimize][mcp] 优化 layout-dump 布局 Agent 读取开销，支持交互模式和 UI 模式"
+    - "[optimize][ide] 远程命令执行时使用纯文本控制台输出，避免控制字符干扰"
+    - "[optimize][deploy] 优化应用安装部署稳定性，安装连接超时后增加自动重试"
+    - "[optimize][diagnostics] 独立进程 Kotlin 增量编译超时或卡死时，自动捕获编译器线程栈现场以便排查"
+    - "[bugfix][compile] 修复多资源目录中存在同名 DataBinding 布局时，增量修改未更新对应 Binding 产物导致运行时类型转换异常的问题"
+    - "[bugfix][compile] 修复跨模块 include DataBinding 布局时，增量编译后因未正确合并底层依赖 mapper 导致页面崩溃的问题"
+    - "[bugfix][compile] 修复在 JDK 9+ 环境下增量编译含 Module 引用的 Java 代码时报类引用歧义的问题"
+    - "[bugfix][compile] 修复修改接口常量或 Kotlin companion object 中的常量后，调用方未触发重编译的问题"
+    - "[bugfix][project] 修复一处内存泄露。Git 仓库状态查询后未及时释放索引对象"
+    - "[bugfix][mcp] 修复 layout-dump Compose 节点内容缺失的问题"
+    - "[bugfix][mcp] 修复低性能设备上页面布局层级获取较慢时 MCP 请求过早超时的问题"
+
 - version: 3.5.4
   date: 2026.10.13
   updates:

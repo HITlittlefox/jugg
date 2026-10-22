@@ -1,5 +1,5 @@
 <h1>更新日志</h1>
-<h2>3.5.4 (2026.10.13)</h2>
+<h2>3.5.5 (2026.10.22)</h2>
 <ol>
     <li>[feature] 支持 Flutter 和 C++ 源码变更，变更调用 Gradle task 生成 so，然后走 Jugg 增量构建</li>
     <li>[feature] 支持系统应用增量更新</li>
@@ -14,6 +14,8 @@
     <li>[feature][agent] 支持 Anti-gravity skills/hooks 一键安装</li>
     <li>[feature][diagnostics] 工程 clean 时不再丢失历史日志</li>
     <li>[feature][diagnostics] 支持在编译失败、运行时崩溃或修改未生效时使用 "Ask AI" 排查，生成本地排查提示词并保留现场快照</li>
+    <li>[feature][compile] 适配 Kotlin 2.4，修复 Kotlin 2.4 项目增量编译时扩展函数无法解析及元数据告警的问题</li>
+    <li>[feature][compile] 支持远程构建场景软链接目录外文件</li>
     <li>[optimize] Dex 报错回退时展示更简洁的警告</li>
     <li>[optimize] 优化自研部署通道耗时</li>
     <li>[optimize] 兼容无普通 Launcher Activity 的应用，部署后自动启动 Home Activity 或直接 stop，避免出现不生效的幻觉</li>
@@ -22,6 +24,11 @@
     <li>[optimize][compile] 优化 git pull 后立即构建时的变更检测，避免遗漏文件修改</li>
     <li>[optimize][compile] 存在已编译待部署产物时，准确显示提示气泡中的文件数量</li>
     <li>[optimize][compile] 优化增量编译失败后的重试提示文案</li>
+    <li>[optimize][compile] gradle build 默认使用 -no-daemon，以减少常驻内存。控制面板支持开关</li>
+    <li>[optimize][mcp] 优化 layout-dump 布局 Agent 读取开销，支持交互模式和 UI 模式</li>
+    <li>[optimize][ide] 远程命令执行时使用纯文本控制台输出，避免控制字符干扰</li>
+    <li>[optimize][deploy] 优化应用安装部署稳定性，安装连接超时后增加自动重试</li>
+    <li>[optimize][diagnostics] 独立进程 Kotlin 增量编译超时或卡死时，自动捕获编译器线程栈现场以便排查</li>
     <li>[bugfix] 修复 Bumblebee 运行配置查找与命名</li>
     <li>[bugfix] 修复上架问题：移除不兼容 API，更新 IDE 上的 Gradle Sync 处理</li>
     <li>[bugfix] 避免 profile 构建误用 debug 任务元数据</li>
@@ -50,6 +57,13 @@
     <li>[bugfix][compat] 修复 Android Studio Narwhal 无法自动创建 Run configuration</li>
     <li>[bugfix][compile] 修复 DataBinding 开启时，非 DataBinding 布局热部署后部分页面崩溃的问题</li>
     <li>[bugfix][compile] 修复 DataBinding 产物概率部署失败的问题</li>
+    <li>[bugfix][compile] 修复多资源目录中存在同名 DataBinding 布局时，增量修改未更新对应 Binding 产物导致运行时类型转换异常的问题</li>
+    <li>[bugfix][compile] 修复跨模块 include DataBinding 布局时，增量编译后因未正确合并底层依赖 mapper 导致页面崩溃的问题</li>
+    <li>[bugfix][compile] 修复在 JDK 9+ 环境下增量编译含 Module 引用的 Java 代码时报类引用歧义的问题</li>
+    <li>[bugfix][compile] 修复修改接口常量或 Kotlin companion object 中的常量后，调用方未触发重编译的问题</li>
+    <li>[bugfix][project] 修复一处内存泄露。Git 仓库状态查询后未及时释放索引对象</li>
+    <li>[bugfix][mcp] 修复 layout-dump Compose 节点内容缺失的问题</li>
+    <li>[bugfix][mcp] 修复低性能设备上页面布局层级获取较慢时 MCP 请求过早超时的问题</li>
 </ol>
 <h2>3.4.3 (2026.09.09)</h2>
 <ol>

@@ -1,5 +1,5 @@
 <h1>Change Log</h1>
-<h2>3.5.4 (2026.10.13)</h2>
+<h2>3.5.5 (2026.10.22)</h2>
 <ol>
     <li>[feature] Support Flutter and C++ source changes: run Gradle tasks to generate native libraries, then continue with Jugg incremental builds</li>
     <li>[feature] Support incremental updates for system apps</li>
@@ -14,6 +14,8 @@
     <li>[feature][agent] Support one-click installation for Anti-gravity skills and hooks</li>
     <li>[feature][diagnostics] Preserve historical logs across project clean</li>
     <li>[feature][diagnostics] Support "Ask AI" investigation for compile failures, runtime crashes, or unapplied changes with localized prompts and preserved snapshots</li>
+    <li>[feature][compile] Support Kotlin 2.4; fix unresolved extension functions and metadata warnings during incremental compilation in Kotlin 2.4 projects</li>
+    <li>[feature][compile] Support symlinks to files outside the project directory in remote build scenarios</li>
     <li>[optimize] Show a concise warning when Dex compilation falls back</li>
     <li>[optimize] Reduce latency on the self-built deploy channel</li>
     <li>[optimize] Support apps without a regular launcher activity by starting the home activity or stopping directly after deployment</li>
@@ -22,6 +24,11 @@
     <li>[optimize][compile] Improve file change detection when running immediately after git pull to avoid missed updates</li>
     <li>[optimize][compile] Accurately report file count in the notification balloon when compiled changes await deployment</li>
     <li>[optimize][compile] Improve retry guidance after incremental compile failures</li>
+    <li>[optimize][compile] Use --no-daemon by default for Gradle fallback builds to reduce resident memory; toggle available in control panel</li>
+    <li>[optimize][mcp] Reduce layout-dump read overhead for agents, supporting both interaction and UI modes</li>
+    <li>[optimize][ide] Use plain console output for remote commands to avoid escape sequence interference</li>
+    <li>[optimize][deploy] Improve deploy stability by automatically retrying on installer socket timeouts</li>
+    <li>[optimize][diagnostics] Automatically capture compiler thread dumps when isolated Kotlin incremental compilation times out</li>
     <li>[bugfix] Restore Bumblebee run configuration lookup and naming</li>
     <li>[bugfix] Fix Marketplace listing issues by removing incompatible APIs and updating Gradle sync handling</li>
     <li>[bugfix] Prevent profile builds from using debug task metadata</li>
@@ -50,6 +57,13 @@
     <li>[bugfix][compat] Fix failure to automatically create Run Configurations in Android Studio Narwhal</li>
     <li>[bugfix][compile] Fix crashes on certain pages after hot deploying non-DataBinding layouts when DataBinding is enabled</li>
     <li>[bugfix][compile] Fix occasional deploy failures for DataBinding artifacts</li>
+    <li>[bugfix][compile] Fix runtime class cast exceptions caused by stale Binding artifacts when identical DataBinding layouts exist across multiple resource roots</li>
+    <li>[bugfix][compile] Fix crashes on pages with cross-module DataBinding includes after incremental compile due to unmerged baseline dependency mappers</li>
+    <li>[bugfix][compile] Fix ambiguous Module reference errors during incremental compilation of Java code on JDK 9+</li>
+    <li>[bugfix][compile] Fix missing caller recompilation when interface constants or Kotlin companion object constants change</li>
+    <li>[bugfix][project] Fix memory leak caused by unreleased Git index objects after repository queries</li>
+    <li>[bugfix][mcp] Fix missing Compose node content in layout-dump</li>
+    <li>[bugfix][mcp] Fix premature UI request timeouts when layout capture is slow on lower-performance devices</li>
 </ol>
 <h2>3.4.3 (2026.09.09)</h2>
 <ol>
