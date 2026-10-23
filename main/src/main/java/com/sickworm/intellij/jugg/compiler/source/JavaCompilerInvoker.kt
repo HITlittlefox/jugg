@@ -26,7 +26,7 @@ class JavaCompilerInvoker {
     private var isSourceTargetVersionNotSupport: Boolean = false
 
     /**
-     * Options carries isEnableApt, isAptOnly, isCanAutoRetry, and encoding.
+     * Options carries language and annotation-processing configuration for one invocation.
      */
     data class Options(
         val isEnableApt: Boolean = false,
@@ -37,6 +37,8 @@ class JavaCompilerInvoker {
         val aptOptions: Map<String, String> = emptyMap(),
         val aptSourcePaths: List<File> = emptyList(),
         val dependencies: List<String> = emptyList(),
+        val processorNames: List<String> = emptyList(),
+        val generatedSourceDir: File? = null,
     )
 
     fun compile(
@@ -114,6 +116,14 @@ class JavaCompilerInvoker {
             }
         } else {
             cmdOptions.add("-proc:none") // The javac -proc option can be used to disable annotation processing
+        }
+
+        if (options.isEnableApt && options.processorNames.isNotEmpty()) {
+            cmdOptions.addAll(listOf("-processor", options.processorNames.joinToString(",")))
+        }
+        options.generatedSourceDir?.let {
+            it.mkdirs()
+            cmdOptions.addAll(listOf("-s", it.absolutePath))
         }
 
         // APT processors may print normal progress as warning/error, keep these diagnostics at debug level.
@@ -231,12 +241,16 @@ class JavaCompilerInvoker {
             // Checking JavaCompiler: it does "it.file.copyToBaseDir(task.outputDir, javaClassPath)" inside doModuleCompile.
             // To be consistent with "Invoker" doing the work:
             val javaClassPath = module.buildPathInfo.javaClassPath
-            outputs.forEach {
-                it.file.copyToBaseDir(task.outputDir, javaClassPath)
+            if (options.generatedSourceDir == null) {
+                outputs.forEach { it.file.copyToBaseDir(task.outputDir, javaClassPath) }
             }
+            val generatedOutputs = options.generatedSourceDir?.let { root ->
+                root.listFilesRecursively().filter { it.extension == "java" }
+                    .map { CompileOutput(CompileOutput.Type.Java, it, root) }
+            }.orEmpty()
 
             hasRecreateAfterInternalError = false
-            CompileResult(task, compileItems.map { Result.success(it.file) }, outputs)
+            CompileResult(task, compileItems.map { Result.success(it.file) }, outputs + generatedOutputs)
         } else {
             // print infos
             logger.debug("Java compile failed, check classpath for : \n${module.buildPathInfo.buildDir}\n")
@@ -279,6 +293,9 @@ class JavaCompilerInvoker {
             CompileResult(
                 task,
                 compileItems.map { item ->
+                    if (forceCompilerOutputDebug) {
+                        item.errors.forEach { (_, message) -> logger.warn(message) }
+                    }
                     Result.failure(CompileError(
                         file = item.file,
                         errors = item.errors,

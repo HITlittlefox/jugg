@@ -182,7 +182,7 @@ The machine-readable inventory is `third_party/components.csv`. Corresponding li
 - License/source reference: https://dl.google.com/dl/android/maven2/androidx/databinding/databinding-compiler/7.4.2/databinding-compiler-7.4.2.pom
 - Download/source: https://dl.google.com/dl/android/maven2/androidx/databinding/databinding-compiler/7.4.2/databinding-compiler-7.4.2.jar
 - Modified by Jugg: 否
-- Notes: 作为 compiler、compiler-common、common 和 baseLibrary 多个 JAR 随插件与 cmd_line 发行。使用 7.4.2 而非 8.7.3，因为后者是 class file 61.0，无法在 Java 11 IDE 中加载。
+- Notes: 作为 compiler、compiler-common、common 和 baseLibrary 多个 JAR 随 cmd_line 独立发行物分发。
 
 ## 21. Android Data Binding compiler suite 8.7.3
 
@@ -191,7 +191,7 @@ The machine-readable inventory is `third_party/components.csv`. Corresponding li
 - License/source reference: https://dl.google.com/dl/android/maven2/androidx/databinding/databinding-compiler/8.7.3/databinding-compiler-8.7.3.pom
 - Download/source: https://dl.google.com/dl/android/maven2/androidx/databinding/databinding-compiler/8.7.3/databinding-compiler-8.7.3.jar
 - Modified by Jugg: 否
-- Notes: 当前发行物已改为 7.4.2，见第 20 节。8.7.3 为 Java 17 字节码，无法在 Electric Eel 等 Java 11 IDE 中加载 `XMLParser$ElementContext`。
+- Notes: 作为 compiler、compiler-common、common 和 baseLibrary 多个 JAR 随插件发行；内嵌 ANTLR Runtime 另行列示。
 
 ## 22. Android Tools Annotations 30.4.2
 
@@ -533,7 +533,7 @@ The machine-readable inventory is `third_party/components.csv`. Corresponding li
 - License/source reference: https://dl.google.com/dl/android/maven2/com/android/tools/build/jetifier/jetifier-core/1.0.0-beta10/jetifier-core-1.0.0-beta10.pom
 - Download/source: https://dl.google.com/dl/android/maven2/com/android/tools/build/jetifier/jetifier-core/1.0.0-beta10/jetifier-core-1.0.0-beta10.jar
 - Modified by Jugg: 否
-- Notes: 作为 Android Data Binding 的传递依赖，以独立 JAR 随插件发行。
+- Notes: 作为 Android Data Binding 的传递依赖和 ARouter 处理器转换依赖，以独立 JAR 随插件发行。
 
 ## 60. Jimfs 1.1
 
@@ -704,7 +704,7 @@ The machine-readable inventory is `third_party/components.csv`. Corresponding li
 - License/source reference: https://github.com/antlr/antlr4/blob/4.5.3/LICENSE.txt
 - Download/source: https://repo1.maven.org/maven2/org/antlr/antlr4-runtime/4.5.3/antlr4-runtime-4.5.3.jar
 - Modified by Jugg: 否
-- Notes: 重定位代码内嵌于 Data Binding compiler-common 7.4.2 并随其发行；由上游 Data Binding 打包。
+- Notes: 重定位代码内嵌于 Data Binding compiler-common 8.7.3 并随其发行；由上游 Data Binding 打包。
 
 ## 79. ASM 9.6
 
@@ -939,3 +939,39 @@ The machine-readable inventory is `third_party/components.csv`. Corresponding li
 - Download/source: https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.40.tar.gz
 - Modified by Jugg: 否
 - Notes: 静态链接到随插件发行的 AAPT2 可执行文件；二进制包含 libpng 1.6.40。
+
+## 105. HDiffPatch and bundled native dependencies 5.1.3
+
+- License: MIT、BSD-2-Clause、BSD-3-Clause、zlib、bzip2-1.0.6、Public Domain
+- Copyright: Copyright (c) 2012-2025 housisong; component copyrights in bundled THIRD_PARTY_NOTICES.txt
+- License/source reference: https://github.com/sisong/HDiffPatch/blob/v5.1.3/LICENSE
+- Download/source: https://github.com/sisong/HDiffPatch/releases/tag/v5.1.3
+- Modified by Jugg: 否
+- Notes: 大 SO 差分部署使用独立进程工具；桌面端分发固定 SHA-256 的官方 hdiffz/hpatchz，含 libdivsufsort、zlib、libdeflate、zstd、bzip2、xxHash、libmd5 与 Public Domain LZMA SDK。Android hpatchz 从未修改上游源码以 NDK 28.2.13676358 构建，仅启用 zlib 并动态链接设备 libz；版本、构建脚本、产物摘要和许可证随源码及插件资源保存于 tools/hdiffpatch/5.1.3。
+
+## 106. Jetifier Processor 1.0.0-beta10
+
+- License: Apache-2.0
+- Copyright: Copyright © 2018 The Android Open Source Project
+- License/source reference: https://dl.google.com/dl/android/maven2/com/android/tools/build/jetifier/jetifier-processor/1.0.0-beta10/jetifier-processor-1.0.0-beta10.pom
+- Download/source: https://dl.google.com/dl/android/maven2/com/android/tools/build/jetifier/jetifier-processor/1.0.0-beta10/jetifier-processor-1.0.0-beta10.jar
+- Modified by Jugg: 否
+- Notes: 用于将项目 ARouter annotation processor 的 Support / AndroidX 引用转换为当前 APK 基线对应类型，以独立 JAR 随插件发行。
+
+## 107. ASM / ASM Util / ASM Tree / ASM Analysis / ASM Commons 8.0.1
+
+- License: BSD-3-Clause
+- Copyright: Copyright © 2000-2011 INRIA, France Telecom
+- License/source reference: https://gitlab.ow2.org/asm/asm/-/blob/ASM_8_0_1/LICENSE.txt
+- Download/source: https://repo1.maven.org/maven2/org/ow2/asm/asm/8.0.1/asm-8.0.1.jar
+- Modified by Jugg: 否
+- Notes: Jetifier Processor 的传递依赖，五个未修改的独立 JAR 随插件发行；版本、协议和修改状态相同合并列示。
+
+## 108. JDOM 2.0.6
+
+- License: JDOM License（BSD-style）
+- Copyright: Copyright © 2000-2012 Jason Hunter, Brett McLaughlin and JDOM contributors
+- License/source reference: https://github.com/hunterhacker/jdom/blob/JDOM-2.0.6/LICENSE.txt
+- Download/source: https://repo1.maven.org/maven2/org/jdom/jdom2/2.0.6/jdom2-2.0.6.jar
+- Modified by Jugg: 否
+- Notes: 作为 Jetifier Processor 的传递依赖，以独立未重定位 JAR 随插件发行；与 Kotlin compiler 内嵌版本并存。

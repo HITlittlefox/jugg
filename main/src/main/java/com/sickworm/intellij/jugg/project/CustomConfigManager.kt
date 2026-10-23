@@ -122,7 +122,7 @@ class CustomConfigManager(
     private fun loadDefaultConfig(): ProjectCustomConfig? {
         if (customConfigFile.exists()) {
             try {
-                val result = Gson().fromJson(customConfigFile.readText(), ProjectCustomConfig::class.java)
+                val result = readConfig(customConfigFile)
                 logger.debug("Load custom config: $result")
                 return result
             } catch (e: Exception) {
@@ -132,7 +132,7 @@ class CustomConfigManager(
 
         if (defaultCustomConfigFile.exists()) {
             try {
-                val result = Gson().fromJson(defaultCustomConfigFile.readText(), ProjectCustomConfig::class.java)
+                val result = readConfig(defaultCustomConfigFile)
                 logger.debug("Load default custom config: $result")
                 return result
             } catch (e: Exception) {
@@ -142,6 +142,17 @@ class CustomConfigManager(
 
         logger.debug("No custom config found.")
         return null
+    }
+
+    @Suppress("DEPRECATION")
+    private fun readConfig(file: File): ProjectCustomConfig? {
+        val config = Gson().fromJson(file.readText(), ProjectCustomConfig::class.java) ?: return null
+        // Gson leaves absent non-null Kotlin fields null, so normalize these lists at the input boundary.
+        return config.copy(
+            buildFileList = config.buildFileList.orEmpty(),
+            buildFileRules = config.buildFileRules.orEmpty(),
+            dontFilterIgnoredFileRules = config.dontFilterIgnoredFileRules.orEmpty(),
+        )
     }
 
     private fun getCacheKey(): String {

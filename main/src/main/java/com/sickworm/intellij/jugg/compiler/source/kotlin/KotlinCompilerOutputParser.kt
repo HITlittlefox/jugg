@@ -44,6 +44,9 @@ class KotlinCompilerOutputParser(
         get() = innerOutputs.flatMap { it.value }
 
     fun getResult(isCompileSuccess: Boolean): List<Result<CompileFile, CompileError>> {
+        if (!isCompileSuccess && forceCompilerOutputDebug) {
+            innerErrors.values.flatten().map { it.second }.distinct().forEach { logger.warn(it) }
+        }
         return files.map { file ->
             val errorDetails = innerErrors[file]
             if (errorDetails != null) {
@@ -84,8 +87,7 @@ class KotlinCompilerOutputParser(
     private var currentMessageType: MessageType = MessageType.LOGGING
 
     private fun onNewLine(line: String) {
-        val contents = MessageType.newLineRegex.find(line)?.groups
-        val tag = contents?.get(2)?.value
+        val tag = MessageType.newLineRegex.findAll(line).lastOrNull()?.groupValues?.get(1)
 
         val newMessageType = MessageType.getByTag(tag)
         if (newMessageType != null) {
@@ -299,7 +301,8 @@ class KotlinCompilerOutputParser(
 
         companion object {
 
-            val newLineRegex = Regex("(.*):?(logging|warning|error|output|exception):(.*)")
+            // Match tags directly to avoid quadratic backtracking on long KAPT lines.
+            val newLineRegex = Regex("(logging|warning|error|output|exception):")
 
             fun getByTag(tag: String?): MessageType? = when (tag) {
                 "logging" -> LOGGING

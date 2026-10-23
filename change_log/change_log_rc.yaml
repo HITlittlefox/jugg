@@ -1,3 +1,43 @@
+- version: 3.6.6
+  date: 2026.10.18
+  updates:
+    - "[feature][settings] Retain internal default backend servers after updating to public plugin releases"
+    - "[optimize][compile] Automatically sync generated ARouter sources to IDE source roots to prevent unresolved reference errors"
+
+- version: 3.6.5
+  date: 2026.10.15
+  updates:
+    - "[feature][compile] Support ARouter annotations with APT/KAPT and KSP1/KSP2 processors"
+    - "[bugfix][compile] Fix excessive KAPT compilation time caused by regex backtracking"
+    - "[bugfix][settings] Fix failure to load custom compilers when project custom config is missing optional build rule fields"
+
+- version: 3.6.4
+  date: 2026.09.28
+  updates:
+    - "[feature] Refactor native library hot update into the unified deployment channel, supporting state recovery"
+    - "[optimize] Optimize large native library hot update performance with delta transfers and streaming to reduce transfer size and memory usage"
+    - "[bugfix] Fix native library updates being skipped after rebuilds produce different content with identical file size"
+
+- version: 3.6.3
+  date: 2026.09.23
+  updates:
+    - "[feature] Support including project and user info when reporting issues to custom backends, and ensure public uploads remain strictly redacted"
+    - "[bugfix] Fix Android sources and resources being misclassified as external native build inputs when located under a Native directory"
+    - "[bugfix] Fix native library deployment failure when native libraries or APK exceed 2.1 GB (Int.MAX_VALUE)"
+
+- version: 3.6.2
+  date: 2026.09.22
+  updates:
+    - "[feature] Support configuring automatic failure log uploads when configuring backend service"
+    - "[feature] Support configuring default settings when configuring backend service"
+    - "[bugfix] Fix project configuration fetch failure before the first full compilation"
+
+- version: 3.6.0
+  date: 2026.09.18
+  updates:
+    - "[feature] Support incremental Native .so hot update: skip APK repackaging and reinstallation when only .so files change (takes effect on restart, disabled by default, can be enabled in Settings under 'SO hot update')"
+    - "[feature] Support running declared codegen tasks (such as IDL) before C++ incremental native builds and including generated code in incremental compilation"
+
 - version: 3.5.5
   date: 2026.10.22
   updates:

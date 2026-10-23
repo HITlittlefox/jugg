@@ -100,10 +100,35 @@ data class ExternalBuildInfo(
     val configFiles: List<File> = emptyList(),
     /** Generated output and cache roots owned by the toolchain; never watched as sources. */
     val excludedDirs: List<File> = emptyList(),
+    /**
+     * Optional Gradle tasks that must run before this native build when a changed file matches
+     * [ExternalBuildPrerequisite.triggerGlobs]. Empty for projects that do not declare codegen.
+     */
+    val prerequisites: List<ExternalBuildPrerequisite> = emptyList(),
 ) {
     val isSupported: Boolean
         get() = taskPath != null && nativeOutput != null && unsupportedReason == null &&
                 (type != ExternalBuildType.Flutter || assetsOutputDir != null)
+}
+
+/** Gradle codegen that must run before a native external build when matching sources change. */
+data class ExternalBuildPrerequisite(
+    val taskPath: String,
+    val triggerGlobs: List<String>,
+    val generatedSourceDirs: List<ExternalBuildGeneratedSourceDir> = emptyList(),
+    val beforeNativeTaskPrefixes: List<String> = listOf("merge", "buildCMake", "externalNativeBuild"),
+)
+
+/** Codegen output root that Jugg compiles itself after the prerequisite Gradle task. */
+data class ExternalBuildGeneratedSourceDir(
+    val directory: File,
+    val language: ExternalBuildGeneratedLanguage,
+)
+
+/** Language of files Jugg should compile from a codegen output directory. */
+enum class ExternalBuildGeneratedLanguage {
+    Kotlin,
+    Java,
 }
 
 /** Supported external source toolchains. */
@@ -125,6 +150,8 @@ data class ExternalBuildInfoRequestItem(
      */
     val apkOwnerModuleRootDir: File? = null,
     val apkOwnerBuildVariant: String? = null,
+    val prerequisiteTaskPaths: List<String> = emptyList(),
+    val prerequisiteBeforeNativePrefixes: List<String> = emptyList(),
 )
 
 /** Transient execution and collection manifest consumed by the Gradle init script collector. */
@@ -203,7 +230,7 @@ data class ModuleInfo(
     val isUseCompose: Boolean? = null,
     val isUseViewBinding: Boolean? = null,
     val isUseDataBinding: Boolean? = null,
-    val kspDependencies: List<LibraryDependency>? = null,
+    val kspInfo: KspInfo? = null,
     val instrumentationTargetPackage: String? = null,
     val composeResourceInfo: ComposeResourceInfo? = null,
     /** Effective options declared by Kotlin compiler subplugins for this module. */
