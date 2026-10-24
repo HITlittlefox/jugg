@@ -168,23 +168,33 @@ class JavaCompilerInvoker {
                 ?.takeUnless { module.moduleType == ModuleInfo.Type.JavaLibrary }
             if (androidJar != null) {
                 val isModularSource = (sourceVersion.removePrefix("1.").toIntOrNull() ?: 8) >= 9
-                val platformJars = getAndroidPlatformJars(context, module, File(androidJar), isModularSource, logger)
+                val frameworkJars = dependencies.take(dependencies.indexOf(androidJar)).map(::File)
+                val sdkPlatformJars = getAndroidPlatformJars(context, module, File(androidJar), isModularSource, logger)
+                val platformJars = if (isModularSource && sdkPlatformJars.any { it.path == androidJar }) {
+                    frameworkJars + sdkPlatformJars
+                } else {
+                    sdkPlatformJars
+                }
                 // Android does not provide StringConcatFactory; match AGP's StringBuilder concatenation.
                 cmdOptions.add("-XDstringConcat=inline")
                 if (isModularSource) {
                     // With no JDK modules, javac still needs java.base supplied by the Android API.
                     cmdOptions.addAll(listOf("--system", "none"))
-                    platformJars.forEach {
-                        platformFileSystems.add(FileSystems.newFileSystem(it.toPath(), null as ClassLoader?))
+                    val platformPaths = platformJars.map { file ->
+                        if (file.isDirectory) {
+                            file.toPath()
+                        } else {
+                            val fileSystem = FileSystems.newFileSystem(file.toPath(), null as ClassLoader?)
+                            platformFileSystems.add(fileSystem)
+                            fileSystem.getPath("/")
+                        }
                     }
-                    fileManager.setLocationForModule(
-                        StandardLocation.MODULE_PATH, "java.base", platformFileSystems.map { it.getPath("/") },
-                    )
+                    fileManager.setLocationForModule(StandardLocation.MODULE_PATH, "java.base", platformPaths)
                     logger.debug("Java platform java.base: $platformJars")
                 } else {
                     // Source 8 has no modules; the file-manager API also supports a newer bytecode target.
-                    fileManager.setLocation(StandardLocation.PLATFORM_CLASS_PATH, platformJars)
-                    logger.debug("Java platform boot classpath: $platformJars")
+                    fileManager.setLocation(StandardLocation.PLATFORM_CLASS_PATH, frameworkJars + platformJars)
+                    logger.debug("Java platform boot classpath: ${frameworkJars + platformJars}")
                 }
             }
             logCompileCommand(module, cmdOptions, compileItems, logger)
