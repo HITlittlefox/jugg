@@ -983,7 +983,11 @@ class JuggManager @TestOnly constructor(
                 )
                 SwingUtilities.invokeLater {
                     progressDialog.close(DialogWrapper.OK_EXIT_CODE)
-                    ReportIssueResultDialog(uploadResult, bundle.destination.backendServerUrl) {
+                    ReportIssueResultDialog(
+                        uploadResult,
+                        bundle.destination.backendServerUrl,
+                        bundleFile = bundle.file.takeIf { bundle.destination.backendServerUrl != null },
+                    ) {
                         uploadIssueReport(bundle)
                     }.show()
                 }
