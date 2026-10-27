@@ -1,6 +1,6 @@
 # 编译系统：源码编译链（Java/Kotlin/Dex）
 
-> 最后核对：2026-09-12
+> 最后核对：2026-10-19
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -25,7 +25,7 @@
 | `DataBindingGenMapperCompiler` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/databinding/DataBindingGenMapperCompiler.kt` | DataBinding mapper 生成实现 |
 | `KotlinCompiler` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/source/kotlin/KotlinCompiler.kt` | Kotlin 源码编译入口 |
 | `KotlinCompilerInvoker` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/source/kotlin/KotlinCompilerInvoker.kt` | Kotlin CLI 参数、插件参数、错误解析与重试 |
-| `AndroidJarClasspathRetry` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/source/kotlin/AndroidJarClasspathRetry.kt` | 识别 supertype 无法访问诊断，并把首个 SDK `android.jar` 后置到 classpath 末尾 |
+| `KotlinCompilerProcessRunner` / `KotlinCompilerProcessDiagnostics` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/source/kotlin/KotlinCompilerProcessRunner.kt`、同目录 `KotlinCompilerProcessDiagnostics.kt` | 独立 Kotlin JVM 执行、生命周期日志、慢编译及收尾阻塞线程取证 |
 | `IKmModuleMergerForCompilation` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/source/kotlin/IKmModuleMergerForCompilation.kt` | 读取并合并模块 classpath 中的 `.kotlin_module`，保留顶层声明与 file facade 元数据 |
 | `KotlinComplementaryFilesCache` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/source/kotlin/KotlinComplementaryFilesCache.kt` | 按需定位并读取项目 Kotlin Gradle incremental cache 的 complementary files |
 | `ComposeResourceCompiler` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/compose/ComposeResourceCompiler.kt` | 在常规 source 阶段前，以一次 Kotlin invocation 编译 Compose generated expect/actual sources |
@@ -72,7 +72,7 @@ SourceCompiler.doModuleCompile()
   -> compileLanguageStagesWithRetry()
        -> KotlinCompiler 先编译 Kotlin + JuggApt Kotlin
        -> JavaCompiler 再编译 Java + JuggApt Java + KAPT Java + DataBinding Java
-       -> 若真实源码诊断直接指向 JuggApt 产物，移除 changed-file 登记并无 JuggApt 重试一次
+       -> 若真实源码诊断直接指向可降级的 JuggApt 产物，移除 changed-file 登记并无 JuggApt 重试一次
   -> compileDexOutputs()
        -> DexCompiler 接收 class / 原始 class 输入
        -> DexCompiler 单次分析 program class
@@ -81,7 +81,13 @@ SourceCompiler.doModuleCompile()
        -> minified 场景交给 DexMinifyCompiler；非 minified 直接返回 dex + 非 class 附属产物
 ```
 
+Kotlin 阶段结果汇总后仍绑定准备阶段的 `compileTask`，保留所有 details/outputs，供后续 Java 结果按共同父任务合并。不能把加入 generated Kotlin 输入后的累计 task 用于该合并；否则混合编译即使两语言都成功，仍会因 `CompileTask.plus()` 的 parent 校验失败而回退 Gradle。全局父任务校验、取消和进度传播保持原契约。
+
 这条链路的核心顺序不能随意调整：JuggApt/DataBinding 必须在语言编译前完成，Kotlin 必须早于 Java，minify 必须在 dex 之后执行。
+
+`SourceCompiler.prepareSourceCompile()` 在语言编译前执行 `JuggAptCompiler`，生成 Java 的目录先供 Kotlin 解析，再进入正常 Java 编译。生成异常或生成文件的直接语言诊断命中 `failClosed` 时，本轮明确失败，不能通过移除生成源码重试掩盖；普通处理器保留可降级路径。扩展接线及 ARouter 检测、生成和恢复边界见 `02_compile_custom_ui.md` §4。
+ARouter 处理器在自身打印原异常 warn，并只向通用编译链交付不含项目细节的失败标记；`JuggCompilerHelper` 保持通用的查看日志提示。生成源码的直接语言诊断仍由语言编译路径处理。
+公共 APT runner 的失败摘要不展开 `CompileError` 列表；Java APT 和 Kotlin KAPT 在构造失败结果时将实际诊断以 warn 输出，不打印空诊断的连带失败文件，Kotlin 广播到多文件的同一诊断只打印一次。
 
 ### 4.1 Kotlin 模块身份与元数据
 
@@ -149,12 +155,18 @@ Kotlin 1.9 的 baseline Kotlin output 可能同时包含 dirty expect/actual clo
 
 ## 5. 隐形约束 / 设计思路 / 已知边界
 
-- `collectJuggAptGeneratedFiles()` 是 fail-open：处理器异常只 warn，然后继续主编译。不要把 JuggApt warn 直接等同于整轮编译失败。
+ARouter 的比较基线、pending 生命周期及完整 Gradle 构建恢复边界统一见 `02_compile_custom_ui.md` §4.3；本节只描述通用生成源码编译与降级契约。
+
+- `collectJuggAptGeneratedFiles()` 仅对可降级处理器保留 warn 后继续的路径；`JuggAptFatalException` 会传播到 `SourceCompiler.doModuleCompile()` 并使本轮失败。不能只凭 warn 判断生成成功或整轮失败，需检查处理器的 `failClosed` 契约与最终编译结果。
 - JuggApt 生成文件会被登记为 changed file；只有语言编译器把真实源码诊断直接归因到 JuggApt 产物时，重试前才会 `removeChangedFile()`，避免错误 shadow source 持续污染后续轮次。
 - Kotlin 批量编译失败时，无直接诊断的同批文件可能被标记为通用失败；Java 同批文件也可能只有空错误列表。这类连带失败不会撤销 JuggApt changed-file tracking，生成文件会保留到后续轮次继续编译。
 - JuggApt 降级只重试一次，且只在直接源码诊断指向本轮 JuggApt 产物时触发；普通 Kotlin/Java 编译失败不会进入该分支。
 - Kotlin 编译失败时，非 Kotlin 输入会被标记为 skipped，避免 Java 阶段在缺少 Kotlin class 的情况下继续产生误导性错误。
 - Java 编译每次调用都创建并关闭独立的 `StandardJavaFileManager`。该对象会缓存 classpath 中的 Jar 句柄；若跨编译长期复用，Windows 上执行 Gradle clean 时可能无法删除 `R.jar` 等中间产物。关闭失败只记录 warn，不改变已经完成的编译结果。
+- Android Java 的平台 API 以依赖中首个 `android.jar` 对应的 SDK 为基准，不能只把该 JAR 放入普通 `-cp`：宿主 JDK 9+ 的 `java.lang.Module` 等类型会参与解析，使通配导入的业务同名类出现歧义，也可能放过 Android 不支持的 JDK API。`JavaCompilerInvoker` 在非 `JavaLibrary` 且依赖含 `android.jar` 时隔离平台；普通 JavaLibrary、依赖不含该 JAR 的调用保持宿主 JDK 解析。
+- Java 平台隔离按 **source** 版本分支：source ≤ 8 通过 `StandardLocation.PLATFORM_CLASS_PATH` 指定 Android 引导类路径，兼容较高的 bytecode target；source ≥ 9 使用 `--system none`，并将同 SDK 的 `core-for-system-modules.jar` ZIP 文件系统视图通过 `MODULE_PATH` 注册为自动模块 `java.base`。ZIP 挂载显式选择 scheme 为 `jar` 的 provider，并使用 `Path` 重载独立打开，避免 IntelliJ 默认文件系统 provider 接管后错误返回本机文件系统。旧 SDK 缺少该文件时使用 `android.jar` 加 lambda 桩作为最小平台。只添加 `--system none` 会因缺少平台类失败，命令行 `-bootclasspath` / `--system` 也存在 target 版本限制，不应直接套用单一参数。平台文件系统随本次 javac 文件管理器一起关闭，不复制 JAR、不新增磁盘缓存；APT 处理器仍在宿主 JVM 运行。
+- 平台隔离准备失败时记录 warn，释放本轮已打开的资源，以新的 javac 文件管理器继续使用宿主 JDK 平台类；只有 Android 平台注册成功后才添加 `--system none`，避免降级残留禁用 JDK 的参数或部分模块位置。资源关闭异常只记录 warn，不覆盖真实编译结果。该降级仅舍弃本轮 Android 平台隔离，真实源码错误仍按原流程返回，不因普通编译错误自动重试或切换平台。
+- 隔离 JDK 后仍需保留 javac 的 Android 编译支持：引导类路径与旧 SDK 备用平台按 `android.jar` → `core-lambda-stubs.jar` 排序，lambda 桩优先取模块声明的 Build Tools，不可用时取 SDK 中最新可用版本；无桩时只记录 debug 并保留其他源码编译能力。Android 编译统一使用与 AGP 一致的 `-XDstringConcat=inline`，避免 JDK 11 在字符串拼接时查找 Android 不提供的 `StringConcatFactory`。L1 回归 owner 为 `JavaCompilerInvokerTest`，覆盖名称冲突、JDK-only API 拒绝、lambda/字符串拼接、class 版本、旧 SDK、JavaLibrary/无 Android JAR 对照及 APT 生成源码。
 - 删除整个 Java/Kotlin 源文件不会形成新的编译输入，也不会生成 class 移除数据。已安装 APK 或既有增量部署中的旧 class 会继续存在，直接引用、反射和类加载仍可能访问它。重命名文件时新路径可以参与编译，但旧路径对应的 class 同样不会因删除事件被移除；只有需要验证旧 class 已不存在时，才通过完整 Gradle build 刷新 APK 基线。
 - `ModuleBuildPathInfo.kotlinClassPath` 会在 AGP 9 Built-in Kotlin 的 `intermediates/built_in_kotlinc/<variant>/compile<Variant>Kotlin/classes`、KMP Android target 的 `classes/kotlin/android/main` 与 legacy `tmp/kotlin-classes/<variant>` 中选择更新时间最新的现存目录；时间相同时按 Built-in Kotlin、KMP Android、legacy 顺序选择，均不存在时回退 legacy 路径。classpath 同步会同时覆盖三种目录，避免本地或远程全量构建后仍缺少 Kotlin class。`android_demo_project` 的 AGP 9 profile 直接使用完整 `src/main` Demo，不再维护隔离 source set；app 保留 KSP，ARouter 统一走 Java `annotationProcessor`，避免 Built-in KAPT 与 KSP/DataBinding 的任务依赖冲突，KMP 则迁移到 `com.android.kotlin.multiplatform.library`。AABResGuard 0.1.10 依赖已移除的 `AppExtension`，因此 AGP 9 profile 不加载该插件，release APK 仍使用标准 R8 构建；其他 profile 继续保留 AABResGuard 集成覆盖。
 - include build 身份只在 IDE 的多快照 project-info 合并链保存为运行时集合，不进入 `ModuleInfo` 序列化协议。主 Gradle 快照缺失、included 快照不可读或命令行只加载单份 Gradle project info 时集合为空，按既有顺序 best-effort 编译。
@@ -169,7 +181,8 @@ Kotlin 1.9 的 baseline Kotlin output 可能同时包含 dirty expect/actual clo
 - pre-D8 program class 分析由 `DexCompiler` 统一完成，并通过显式 `ClassPreparation` 依次交给 `TransformerCompiler`、`getDesugarInfo` 和 D8。`DeployDataGenerator` / `CompileEffectAnalyzer` 不再从 `CompileFile.extraInfo` 读取元数据或 fallback 完整解析 program class；递归父类只读取 header，不遍历方法体。
 - Hilt 入口转换不是完整注解处理支持。它只维护 Hilt `2.41`～`2.60.1` 已有生成物对应的入口字节码形态；生成物缺失或无法读取时失败，用户自行选择 Gradle fallback，不新增 Hilt 专属自动回退。
 - core library rewrite 只在 APK database 已发现 `j$.*` 时查找 `desugar.json`；不能因为工程声明了依赖就无条件为所有模块启用。
-- KAPT 场景下 Kotlin 编译器 warning/error 文本会按 debug 记录，避免用户可见输出被 APT/KAPT 噪音淹没；失败判定仍由 parser 处理。
+- Kotlin 输出消息直接匹配标签并保留最后一个标签的既有分类语义，避免无标签的 KAPT 长 classpath/参数行触发贪婪正则的平方级回溯；日志内容、诊断和产物映射保持原有契约。
+- KAPT 场景下 Kotlin 编译器输出先按 debug 记录；构造失败结果时将收集的错误诊断去重后以 warn 输出，warning 和普通进度输出保持 debug。失败判定仍由 parser 处理。
 - Kotlin compiler plugin 参数优先复用 Gradle task 已解析的 `KotlinCompilerPluginData.options.arguments`，兼容 Kotlin Gradle Plugin 的 `kotlin_gradle_plugin_common` 与旧 `kotlin_gradle_plugin` getter；读取不到时保持空列表，不伪造插件参数。参数与 plugin JAR 使用同一个 current-to-parent module 列表聚合，兼容 KMP 等将插件信息保存在父模块的场景，并删除完全相同的重复项。不得只收紧参数继承范围，否则可能加载父模块插件却遗漏其 required option；plugin owner 范围如需调整，必须同时覆盖 JAR、参数与 compiler classpath。
 - Gradle-resolved plugin 参数只在本轮加载项目 compiler plugin 时转换为 `-P`。已加载插件报 `unsupported plugin option` 时，仅移除该 plugin id 的 Gradle-resolved 参数并共享全局单次重试预算；降级成功后按 compiler toolchain 与原参数集缓存，toolchain 或参数变化后重新尝试。用户显式写入 `kotlinFreeCompilerArgs` 的参数不参与该降级。
 - compiler plugin 报 `required plugin option not present` 时只重试一次。Jugg 优先从 JAR 的 `CommandLineProcessor` service 与 class 常量识别 plugin id，再回退旧的文件名匹配；命中的插件仅在本次 invoker 后续编译中禁用，无法识别时保留原始失败，不扩大为禁用全部插件。
@@ -183,10 +196,12 @@ Kotlin 1.9 的 baseline Kotlin output 可能同时包含 dirty expect/actual clo
 - Compose common/platform 分类使用同 owner module root 下的 IDE source-set module 身份；`androidMain` 始终是 platform，其他 `Unknown` source-set module 可表示非 `commonMain` 的 common source set，不从 custom resource root 路径反推。
 - generated Kotlin 编译失败时，`KotlinCompilerInvoker` 的原始行号和 diagnostic 文本会聚合回原 Compose resource 输入，不能替换成通用失败文案。
 - Compose resource 编译按 generator task/API 结构识别能力，不使用 Kotlin/Compose 精确版本白名单；Kotlin 1.9、2.1、2.3 profile 均有定向回归。
-- IDE JVM 也是进程内 Kotlin compiler 的宿主环境。旧 Kotlin compiler 的 shaded `JavaVersion.current()` 在新宿主 JDK 上可能解析失败；`KotlinCompilerHostCompat` 只在探测失败时预置宿主 feature，宿主 JDK >= 25 且 classpath 含 android.jar 时，`KotlinCompilerInvoker` 同时添加 `-no-jdk`。recreate compiler 不会改变宿主环境，因此相同 `INTERNAL_ERROR` 重试失败时应检查 `preset shaded JavaVersion.current to`、`add -no-jdk` 和实际项目 Kotlin 版本。
-- 项目 Kotlin compiler 的 shaded IntelliJ Core 加载 `extensions/compiler.xml` 时，可能通过 `PluginManagerCore.getBuildNumber()` 回退到 `PathManager.getHomePath()`；若未提供有效 IDE home，会以 `Could not find installation home path` 失败。Jugg 只在使用项目 compiler 时检查 `idea.home.path`：保留指向真实 IDE 安装目录的现有值，否则从宿主 `PathManager.getHomePath()` 取得并验证包含 `bin/idea.properties` 的目录，再设置该属性。原有 FileSystem 冲突切换到独立 JVM 时传递同一个有效值；无法取得有效目录时保留 compiler 原始错误与既有 Gradle 回退。
-- ROM/车机系统应用的 framework、HideAPI jar 以普通依赖排在 SDK `android.jar` 之后时，Kotlin 解析嵌套类型会先命中前置的公开 stub，报 `cannot access ... which is a supertype of ...` 或 `unresolved supertypes:`。命中该诊断且 classpath 中的首个 `android.jar` 不在末尾时，`KotlinCompilerInvoker` 把它移到末尾重试一次，共享既有 `isCanAutoRetry` / `hasRetryCompile` 单次预算；重试成功后按源文件记住该降级，同批文件跟随使用后置顺序，重试失败则保留第一次诊断且不写入记忆。判定不要求 `android.` 包名：Kotlin 2.2+ 只渲染类型简名。默认 `getModuleDependencies()` 顺序不变，记忆随 compile context 重建清空。该失败是 Kotlin 按 classifier 路径解析嵌套类型特有的，javac 走 binary name 直查同名嵌套 class，不受前置 stub 影响，因此 Java 编译路径不做此降级。真正会命中的形态是"源文件继承了某个 jar 里的类，而那个类的 supertype 只存在于被遮蔽的 framework jar"；源码里直接书写被裁剪的嵌套类型报的是 `unresolved reference`，不走该降级。回归 owner 为 `SourceCompileTest.romHiddenApi_shouldRecoverWhenSdkAndroidJarShadowsFrameworkJar`，依赖 `android_demo_project/app/romlibs/` 下的 `compileOnly` fixture jar 与 `testcase/romhiddenapi/` 场景。
+- IDE JVM 也是进程内 Kotlin compiler 的宿主环境。宿主 JDK >= 25 时，项目 Kotlin compiler 默认改用独立 JVM，避免 Kotlin 2.x 在 IDE 进程内初始化 shaded IntelliJ Core 时依赖缺失的 `bin/idea.properties`；日志会记录 `use isolated Kotlin compiler process`。旧 Kotlin compiler 的 shaded `JavaVersion.current()` 仍在进程内兼容路径中按需预置宿主 feature，宿主 JDK >= 25 且 classpath 含 android.jar 时仍添加 `-no-jdk`。recreate compiler 不会改变宿主环境，因此不应把同一 `INTERNAL_ERROR` 作为有效降级；应确认独立进程日志和实际项目 Kotlin 版本。
+- 项目 Kotlin compiler 的 shaded IntelliJ Core 加载 `extensions/compiler.xml` 时，可能通过 `PluginManagerCore.getBuildNumber()` 回退到 `PathManager.getHomePath()`；若未提供有效 IDE home，会以 `Could not find installation home path` 失败。Jugg 只在使用项目 compiler 时检查 `idea.home.path`：保留指向真实 IDE 安装目录的现有值，否则从宿主 `PathManager.getHomePath()` 取得并验证包含 `bin/idea.properties` 的目录，再设置该属性。独立 JVM 也传递同一个有效值；无法取得有效目录时保留 compiler 原始错误与既有 Gradle 回退。
+- ROM framework 探测在 `BaseCompileContext` 创建和模块模型更新时完成：仅扫描运行时依赖非空模块的 compile/runtime 文件路径差集；directory/ZIP 中含 SDK 37.2 一级包（android、androidx、dalvik、java、javax、org）下 class 的条目记录到 context。缺失文件跳过、ZIP 读取失败局部 warn，debug 记录候选、命中路径和耗时。源码 classpath 只前置原本已在本次依赖中的命中条目，其余顺序不变；Java source ≤8 同步将前置条目放入 SDK 引导类路径前；source ≥9 使用旧 SDK 备用平台时也按同一顺序构造平台视图，目录直接使用路径、ZIP 使用文件系统视图。Kotlin 不再按诊断后置 SDK 或按文件记忆重试。一级包探测接受 compile-only 注解等库的少量误判；无运行时依赖信息时不探测。
+- ROM 编译回归 owner 为 `RomApiCompileTest`：真实 SDK 35 + Java/Kotlin 六类 API 场景，SDK-first 基线与真实 `BaseCompileContext` 初始化前置对照，不依赖 invoker 重试。用户报告复现源码位于 `android_demo_project/app/src/romApi/java/.../romhiddenapi/`，`-PjuggRomApiFixture=true` 开启；桩生成、Gradle 基线前置与 IDE 验证步骤见 `android_demo_project/app/romlibs/README.md`。模拟 API 仅用于编译，不在普通设备自动运行。
 - 旧项目 Kotlin compiler 在 IDE 进程内关闭 `DescriptorLoadingContext` 时，可能误关 IDE 的 `DelegatingFileSystem` 并抛出 `UnsupportedOperationException`。只有完整异常块同时命中这三个信号时，invoker 才按规范化 compiler classpath 记录宿主冲突：warm-up 不启动无源码子进程，同一 toolchain 的后续编译改用独立 JVM；真实源码首次命中时立即以独立 JVM 重试一次。不同 compiler classpath、显式隔离模式、内置 compiler 和其他异常保持原路径，跨进程 invocation 不写 expect/actual tracker cache。one-shot 进程将 Kotlin compiler 参数写入 UTF-8 argfile，模块 classpath、插件参数和源码列表不再直接占用系统进程命令行；Java launcher 的 compiler classpath 保持原传参方式。
+- 独立 Kotlin runner 的 debug 日志用 PID 关联启动、退出码、终止子孙/主进程、等待输出、flush 和结束阶段。终止子孙时记录 `destroyForcibly` 返回值，主进程记录终止调用已返回，均附检查时的存活状态；请求返回不能解释为进程已退出。`KotlinCompilerProcessDiagnostics` 在仍未开始收尾的第二、第四分钟分别采样累计 CPU 时间、采样间隔、输出读取/转交字节和最近输出距今时间；CPU 信息不可用时明确记录 unavailable，不影响其他取证。第四分钟额外记录宿主编译/输出线程栈，并用同一 Java home 的 `jcmd <pid> Thread.print -l` 尝试采集一次子进程线程栈；工具显式等待最多五秒，输出最多 256 KiB，通过临时文件读取，避免诊断管道自身阻塞。诊断在独立 daemon 线程中运行，不延长原五分钟编译超时。收尾十秒仍未完成时再记录宿主线程栈、当前 phase、主进程与已发现子孙的存活状态和进展计数；若编译监控未按期进入收尾，也记录宿主栈。子孙句柄沿原终止遍历登记，取证不重新枚举进程树。工具缺失、attach 失败或超时只影响子进程栈采集，原因与部分输出保留在现有 compile 日志中，报告会一并收集。该能力只增强取证，原 runner 的输出线程 join 仍未加时限，不能把有诊断日志解释为卡顿已修复。
 
 ---
 
@@ -197,6 +212,7 @@ Kotlin 1.9 的 baseline Kotlin output 可能同时包含 dirty expect/actual clo
 | generated source 落盘但下轮没编译 | `SourceCompiler.prepareSourceCompile()`：确认 `addChangedFile()` 是否登记 JuggApt 输出 |
 | JuggApt 生成代码导致编译失败 | `compileLanguageStagesWithRetry()` 和 `shouldRetryWithoutJuggApt()` |
 | Windows Gradle clean 无法删除 `R.jar` | 先用句柄工具确认 owner；若为 Android Studio 进程，检查 `JavaCompilerInvoker` 是否在本轮 javac 完成后关闭 `StandardJavaFileManager` |
+| Gradle 成功，Jugg Java 报 `reference to Module is ambiguous` / `对 Module 的引用不明确` | 核对通配导入是否引入业务 `Module`、是否与 `java.lang.Module` 冲突；检查 `JavaCompilerInvoker` 的 `Java platform boot classpath` / `Java platform java.base` 日志及实际 source 版本。补单类型导入只能局部规避，平台隔离由 javac 调用边界负责 |
 | 删除或重命名源码文件后旧 class 仍可加载 | 删除路径不会生成 class 移除数据；这是预期的增量结果，只有需要让旧 class 消失时才刷新完整 Gradle APK 基线 |
 | Kotlin 编译失败后 Java 大量连带报错 | `compileLanguageStages()`：确认 Java 阶段是否被跳过，以及 Kotlin failed details |
 | classpath 缺失 / Kotlin metadata 异常 | `K2JVMCompilerIsolate.checkClasspath`、`KotlinCompilerOutputParser`、`KmModuleMergerForCompilation` |

@@ -1,24 +1,28 @@
 # Policy: Incremental Compile Limitations
 
-Use this policy when deciding whether to stay on incremental compile or switch to Gradle fallback.
+Before the first build command, use the current changes and known build configuration to decide whether incremental compile can preserve the intended behavior. A successful incremental compile alone cannot prove that generated code or instrumentation is current.
 
 ## Supported Annotation Processors / Plugins
 
-Jugg incremental compile supports only:
+Supported annotation processing / compiler plugin paths are:
 
-- `DataBinding`
-- `ViewBinding`
-- `Compose`
-- `Parcelize`
-- `Page` for Kuikly
-- `JsonClass` for Moshi
+| Processor / plugin | Incremental support boundary |
+|--------------------|------------------------------|
+| `DataBinding` | Dedicated binding source / mapper generation |
+| `ViewBinding` | Binding class generation for layout changes |
+| `Compose` | Project Compose compiler plugin |
+| `Parcelize` | Project Parcelize compiler plugin |
+| Kuikly `@Page` | Append new page registrations to an existing Gradle-generated entry; deleting, renaming, or changing existing routes requires `gradle-build` |
+| Moshi `@JsonClass` | KSP1 with the project's KSP dependencies; KSP2 does not re-run processors and requires `gradle-build` for generated-code changes |
+
+This list is not general APT/KAPT/KSP support. Hilt entry-point transformation below does not make Hilt/Dagger a supported annotation processor.
 
 ## Unsupported Annotation Behavior
 
 If unsupported processors are involved (for example Dagger/Hilt, Room, Glide):
 
 - Regular source-only changes can still take effect.
-- Adding new annotations or changing annotation values will not re-run unsupported processors.
+- Adding, removing, or changing processor annotations or inputs that affect generated code will not re-run unsupported processors.
 - Generated code becomes stale and changes may silently not take effect.
 - Existing Hilt `@AndroidEntryPoint` / `@HiltAndroidApp` classes are a narrow exception for entry-point bytecode transformation: ordinary method-body changes keep injection when the matching Gradle-generated `Hilt_*` parent is available. Jugg still does not re-run Hilt/Dagger processors.
 
@@ -59,13 +63,15 @@ Some devices can hit probabilistic `AssetManager` native crashes or WebView nati
 
 ## Decision Rule
 
-Switch to `gradle-build` directly when any condition is true:
+Switch to `gradle-build` directly, without first running or exhausting retries of `compile` / `deploy`, when any condition is true:
 
-1. Change adds or modifies unsupported annotations, including Hilt injection declarations or bindings that require regenerated code.
-2. Changed files depend on Transform/instrumented bytecode behavior other than the supported Hilt Android entry-point rewrite.
+1. This change adds, removes, or modifies annotations handled by an unsupported processor, or falls outside a supported path's boundary above. This includes Hilt injection declarations or bindings that require regenerated code.
+2. Files to be recompiled are confirmed to depend on Transform/instrumented bytecode behavior other than the supported Hilt Android entry-point rewrite, such as ASM hooks, AOP, or injected routing/init logic. The annotation itself need not change.
 3. Part of `build/` was manually deleted or some Gradle maven dependencies are missing.
 
-Then continue the normal loop: `deploy` → runtime verify.
+Tell the user which changed annotation/processor or affected file/instrumentation requires the direct fallback. A processor or instrumentation plugin merely existing in the project is not enough: ordinary source-only edits outside these conditions retain incremental compile.
+
+If the user forbids Gradle fallback, report the conflicting change and stop before building. Otherwise, run `gradle-build` and continue the selected flow's remaining verification; do not require an incremental failure first.
 
 ## Symptom Linkage
 

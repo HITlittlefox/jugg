@@ -17,16 +17,22 @@ class LayoutDumpMcpToolAction : McpToolAction {
 
     override val definition: McpToolDefinition = McpToolDefinition(
         name = toolName,
-        description = "Dump UI hierarchy to a sparse JSON artifact at data.file. " +
-            "interaction (default) prunes nodes for page browsing; ui preserves the captured tree " +
-            "for UI validation and structure/geometry references. Supports rootLayout, includeGone, and allWindows.",
+        description = "Dump UI hierarchy to a sparse JSON artifact at data.file; real nodes start on new lines; synthetic details stay inline. " +
+            "Artifacts up to 16 KiB also return the complete object in data.layout; use it without rereading the file. " +
+            "For larger layouts, read relevant file lines or use rootLayout/view-locate instead of loading the whole tree. " +
+            "interaction (default) prunes nodes for page browsing; ui preserves the captured tree for UI validation. " +
+            "Interaction keeps the first offscreen node and replaces its descendants with a jugg_details placeholder; " +
+            "use ui with rootLayout to expand them. " +
+            "Supports rootLayout, includeGone, and allWindows.",
         inputSchema = McpJsonSchemaObject(
             properties = mapOf(
                 "projectDir" to McpToolSchemas.projectDirProperty,
                 "mode" to McpJsonSchemaProperty(
                     type = "string",
-                    description = "interaction prunes nodes and promotes children; ui preserves captured hierarchy. " +
-                        "Both keep retained node IDs and non-default attributes. Neither guarantees clickability or complete visual reconstruction.",
+                    description = "interaction removes invisible/gone subtrees and padding/textColor, keeps className, prunes " +
+                        "nonsemantic wrappers, and folds offscreen descendants into an inline jugg_details child. " +
+                        "Real children arrays put opening/closing brackets on separate lines. " +
+                        "ui preserves captured hierarchy and visual fields. Public virtual IDs use _vid_; legacy selectors still work.",
                     default = "interaction",
                     `enum` = listOf("interaction", "ui"),
                 ),
@@ -36,7 +42,7 @@ class LayoutDumpMcpToolAction : McpToolAction {
                 ),
                 "includeGone" to McpJsonSchemaProperty(
                     type = "boolean",
-                    description = "When true, include GONE nodes in the output for diagnostics. Default is false.",
+                    description = "When true, collect GONE nodes for ui diagnostics. interaction always removes invisible/gone subtrees. Default is false.",
                 ),
                 "allWindows" to McpJsonSchemaProperty(
                     type = "boolean",

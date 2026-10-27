@@ -7,6 +7,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Computable
 import com.sickworm.intellij.jugg.compiler.CompileFile
+import com.sickworm.intellij.jugg.compiler.CompileOutput
 import com.sickworm.intellij.jugg.compiler.CompileUiHandler
 import com.sickworm.intellij.jugg.compiler.IncrementalDeployHelper
 import com.sickworm.intellij.jugg.compiler.jarDexFileName
@@ -18,6 +19,7 @@ import com.sickworm.intellij.jugg.deploy.hotreload.DirectAppSandboxDeployTranspo
 import com.sickworm.intellij.jugg.deploy.hotreload.RootlessCompatImportConfirmer
 import com.sickworm.intellij.jugg.deploy.instrument.AndroidTestApkSelector
 import com.sickworm.intellij.jugg.deploy.instrument.AndroidTestResultModel
+import com.sickworm.intellij.jugg.deploy.nativesandbox.NativeLibraryDelta
 import com.sickworm.intellij.jugg.deploy.run.applychanges.AndroidDeployType
 import com.sickworm.intellij.jugg.deploy.run.applychanges.CustomApkInstallScriptException
 import com.sickworm.intellij.jugg.deploy.run.applychanges.JuggDeployTask
@@ -40,6 +42,7 @@ import com.sickworm.intellij.jugg.project.dependency.IDependencyChangeManager
 import com.sickworm.intellij.jugg.server.JuggServer
 import kotlinx.coroutines.runBlocking
 import java.io.File
+import java.nio.channels.InterruptedByTimeoutException
 
 /**
  * Create a deploy task.
@@ -239,11 +242,15 @@ class JuggDeployerHelper(
         TimeLogger.start("deploy_to_device")
         lateinit var launchResult: LaunchResult
         var successfulSliceCount = 0
+        val nativeLibraryDelta = NativeLibraryDelta(baseLaunchContext.compileUiHandler, logger, deployHistoryManager)
         dataList.forEachIndexed { i, splitData ->
             if (dataList.size > 1) TimeLogger.start("deploy_to_device_slice$i")
+            val classes = splitData.newClasses + splitData.hotFixModifiedClasses + splitData.hotReloadModifiedClasses
             logger.debug("deploy_to_device_slice$i, " +
-                    "classes: ${splitData.newClasses.size + splitData.hotFixModifiedClasses.size + splitData.hotReloadModifiedClasses.size}, " +
-                    "overlays: ${splitData.overlays.size}")
+                    "classes: ${classes.size}, classBytes=${classes.sumOf { it.content.size.toLong() }}, " +
+                    "maxClassBytes=${classes.maxOfOrNull { it.content.size } ?: 0}, " +
+                    "overlays: ${splitData.overlays.size}, overlayBytes=${splitData.overlays.sumOf { it.content.size.toLong() }}, " +
+                    "maxOverlayBytes=${splitData.overlays.maxOfOrNull { it.content.size } ?: 0}")
             try {
                 val isSliceSkipExceptOverlayCheck = isSkipExceptOverlayCheck || i != 0
                 val launchContext = baseLaunchContext.withSkipExceptOverlayCheck(isSliceSkipExceptOverlayCheck)
@@ -251,6 +258,7 @@ class JuggDeployerHelper(
                     project = project,
                     type = androidDeployType.forDeploySlice(i, dataList.lastIndex),
                     data = splitData,
+                    nativeLibraryDelta = nativeLibraryDelta,
                     deploymentService = deploymentService,
                     asDeployerCompat = asDeployerCompat,
                 )
@@ -596,7 +604,10 @@ class JuggDeployerHelper(
             if (isOutOfMemoryFailure(e)) {
                 return handleOutOfMemoryFailure(deployOptions, deployData, costTime(), e)
             }
-            val reason = e.message ?: e.cause?.message ?: e.toString()
+            // Installer reflection can wrap a socket timeout without an exception message.
+            val socketTimeout = generateSequence<Throwable>(e) { it.cause }
+                .take(16).firstOrNull { it is InterruptedByTimeoutException }
+            val reason = socketTimeout?.toString() ?: e.message ?: e.cause?.message ?: e.toString()
             val retryReason = deployOptions.retryReason
             val isCustomInstallScriptFailure = e is CustomApkInstallScriptException
             val canRetry = !isCustomInstallScriptFailure &&
@@ -696,6 +707,7 @@ class JuggDeployerHelper(
 
         var deployData = deployOptions.retryDeployData
             ?: deployFileManager.getDeployData(deployOptions.isWarmUp, isNeedPushResourceApk(device, initialDeployData))
+        deployData = routeNativeLibraries(device, deployData)
         publishDeployState(deployData)
         deployData = libraryTestApkBackfillHelper.backfillIfNeeded(
             spec = deployOptions.androidTestRunSpec,
@@ -800,6 +812,7 @@ class JuggDeployerHelper(
                 deployOptions.isWarmUp,
                 isNeedPushResourceApk(device, deployData),
             ).copy(isRecoverReplayAfterReinstall = true)
+            deployData = routeNativeLibraries(device, deployData)
             publishDeployState(deployData)
         }
 
@@ -919,13 +932,16 @@ class JuggDeployerHelper(
     }
 
     private fun logDeployPayloadMemory(deployData: JuggDeployData) {
-        val overlayBytes = deployData.overlays.sumOf { it.content.size.toLong() }
-        val maxOverlayBytes = deployData.overlays.maxOfOrNull { it.content.size } ?: 0
+        val payloadFiles = deployData.overlays + deployData.nativeLibraryOverlays
+        val overlayBytes = payloadFiles.sumOf { it.size }
+        val maxOverlayBytes = payloadFiles.maxOfOrNull { it.size } ?: 0L
         val runtime = Runtime.getRuntime()
         val heapUsedBytes = runtime.totalMemory() - runtime.freeMemory()
+        val apkSizes = deployData.apks.flatMap { it.files }.joinToString { "${it.apkFile.name}:${it.apkFile.length()}" }
         logger.debug("Deploy payload memory: overlayCount=${deployData.overlays.size}, " +
+                "nativeLibraryCount=${deployData.nativeLibraryOverlays.size}, " +
                 "overlayBytes=$overlayBytes, maxOverlayBytes=$maxOverlayBytes, " +
-                "heapUsedBytes=$heapUsedBytes, heapMaxBytes=${runtime.maxMemory()}")
+                "heapUsedBytes=$heapUsedBytes, heapMaxBytes=${runtime.maxMemory()}, apkSizes=[$apkSizes]")
     }
 
     private fun embeddedToApk(deployOptions: DeployOptions): DeployTaskResult {
@@ -938,7 +954,8 @@ class JuggDeployerHelper(
             logger.info("Embedding APK...\n${apkFiles.joinToString("\n")}")
         }
         val classes = (incDeployData.newClasses + incDeployData.hotFixModifiedClasses + incDeployData.hotReloadModifiedClasses)
-        val deployItems = classes.map { it.deployItem } + incDeployData.overlays + incDeployData.updateApkFiles
+        val deployItems = classes.map { it.deployItem } + incDeployData.overlays +
+            incDeployData.nativeLibraryOverlays + incDeployData.updateApkFiles
         val deployedItems = deployFileManager.getDeployedFiles()
             .map { it.toDeployItem() }
             .filter { deployedItem ->
@@ -1015,7 +1032,8 @@ class JuggDeployerHelper(
         val compatStart = System.currentTimeMillis()
         val adb = deviceAdbFactory(device, logger)
         val isDirectAppSandboxClassDeploy = !data.isInstall && data.hasClassChanges &&
-            data.overlays.isEmpty() && data.updateApkFiles.isEmpty() &&
+            data.overlays.isEmpty() && data.nativeLibraryOverlays.isEmpty() &&
+            data.updateApkFiles.isEmpty() &&
             data.apks.filter { !it.isOtherTargetingTestApk }.any {
                 AppSandboxExecutor.probeApplyChangesCapability(adb, it.applicationId) ==
                     AppSandboxExecutor.ApplyChangesCapability.INCOMPATIBLE
@@ -1039,6 +1057,17 @@ class JuggDeployerHelper(
             return true
         }
         return false
+    }
+
+    private fun routeNativeLibraries(device: IDevice, data: JuggDeployData): JuggDeployData {
+        if (data.nativeLibraryOverlays.isEmpty() ||
+            (JuggSettings.isEnableNativeSandboxDeploy && device.version.apiLevel >= 26)) {
+            return data
+        }
+        return data.copy(
+            nativeLibraryOverlays = emptyList(),
+            updateApkFiles = data.updateApkFiles + data.nativeLibraryOverlays,
+        )
     }
 
     private data class InstallDeployOutcome(

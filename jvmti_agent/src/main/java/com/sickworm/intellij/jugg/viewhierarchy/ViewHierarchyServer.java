@@ -34,7 +34,7 @@ public class ViewHierarchyServer {
     private static final String TAG = "Jugg#ViewHierarchyServer";
     private static final String SOCKET_PREFIX = "jugg_vh_";
     private static final String PROTOCOL_VERSION = "1.1";
-    private static final long MAIN_THREAD_TIMEOUT_MS = 5000L;
+    private static final long MAIN_THREAD_TIMEOUT_MS = 10000L;
 
     private static volatile ViewHierarchyServer sInstance;
 

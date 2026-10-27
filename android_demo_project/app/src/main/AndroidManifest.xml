@@ -45,6 +45,10 @@
             android:exported="true"
         />
         <activity
+            android:name="com.sickworm.jugg.demo.testcase.databinding.MultiRootDataBindingActivity"
+            android:exported="true"
+        />
+        <activity
             android:name="com.sickworm.jugg.demo.testcase.databinding.DataBindingBooleanVisibilityDemoActivity"
             android:exported="true"
         />
@@ -59,6 +63,10 @@
         <activity
             android:name="com.sickworm.jugg.demo.testcase.kmp.KmpComposeResourceDemoActivity"
             android:exported="false"
+        />
+        <activity
+            android:name="com.sickworm.jugg.demo.testcase.databinding.CrossModuleDataBindingActivity"
+            android:exported="true"
         />
         <activity
             android:name="com.sickworm.jugg.demo.testcase.minify.MinifyTestActivity"

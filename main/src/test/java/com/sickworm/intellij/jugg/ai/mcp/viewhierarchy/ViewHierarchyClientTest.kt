@@ -10,6 +10,37 @@ import java.io.File
 class ViewHierarchyClientTest {
 
     @Test
+    fun testCompactVirtualIdsRoundTripThroughExistingRuntimeSelectors() {
+        val data = jsonObject("""{"className":"View","resourceId":"_vir_id_1","density":2,
+            "matchCount":1,"x":10,"y":10,"result":"PASS","values":[],
+            "matchedElement":{"resourceId":"_vir_id_1","bounds":[0,0,20,20],"centerX":10,"centerY":10},
+            "elements":[{"resourceId":"_vir_id_1","bounds":[0,0,20,20],"centerX":10,"centerY":10}]}""")
+        val client = StubViewHierarchyClient(FakeDeviceAdb(emptyMap()), "com.example.app", listOf("jugg_vh"),
+            mapOf("jugg_vh" to ViewHierarchyResponse("ok", null, data, "1.1")))
+        client.dumpLayout("_vid_1")
+        Assert.assertEquals("_vir_id_1", client.requests.last().params["rootLayout"])
+        val found = client.findElements("_vid_literal", "_vid_1", null, null, true, 10)
+        Assert.assertEquals("_vir_id_1", client.requests.last().params["resourceId"])
+        Assert.assertEquals("_vid_literal", client.requests.last().params["text"])
+        Assert.assertEquals("_vid_1", found?.matches?.single()?.resourceId)
+        val tapped = client.findAndTap(null, "_vid_1", null, null) as FindAndTapResult.Success
+        Assert.assertEquals("_vir_id_1", client.requests.last().params["resourceId"])
+        Assert.assertEquals("_vid_1", tapped.matchedElement.resourceId)
+        client.findAndLongPress(null, "_vid_1", null, null, 500)
+        Assert.assertEquals("_vir_id_1", client.requests.last().params["resourceId"])
+        val inspected = client.evalView(null, "_vid_1", null, null, listOf("getText()"))
+        Assert.assertEquals("_vir_id_1", (client.requests.last().params["target"] as Map<*, *>)["resourceId"])
+        Assert.assertEquals("_vid_1", inspected?.resourceId)
+        client.verify(mapOf("target" to mapOf("resourceId" to "_vid_1"),
+            "target2" to mapOf("resourceId" to "_vid_2")))
+        Assert.assertEquals("_vir_id_2", (client.requests.last().params["target2"] as Map<*, *>)["resourceId"])
+        client.findElements(null, "_vir_id_1", null, null, true, 10)
+        Assert.assertEquals("_vir_id_1", client.requests.last().params["resourceId"])
+        client.findElements(null, "real_id", null, null, true, 10)
+        Assert.assertEquals("real_id", client.requests.last().params["resourceId"])
+    }
+
+    @Test
     fun testIncompleteCaptureDoesNotBecomeTapTargetNotFound() {
         val client = StubViewHierarchyClient(
             FakeDeviceAdb(emptyMap()), "com.example.app", listOf("jugg_vh"),

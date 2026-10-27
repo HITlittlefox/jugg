@@ -1,6 +1,6 @@
 # 编译系统：资源编译链（res/assets/arsc/Compose resource）
 
-> 最后核对：2026-09-01
+> 最后核对：2026-10-21
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -18,7 +18,7 @@ Manifest diff 见 `02_compile_manifest.md`；release 混淆见 `02_compile_obfus
 | 类/接口 | 文件 | 作用 |
 |---|---|---|
 | `ResourceOverlayCompiler` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/overlay/ResourceOverlayCompiler.kt` | 资源主协调器；按 APK scoped 任务串联 manifest、flat compile、arsc link，并过滤最终 overlay |
-| `ResourceCompiler` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/overlay/ResourceCompiler.kt` | 将资源文件或资源目录编译为 `.flat`；先处理 ViewBinding/DataBinding split XML 和生成源码 |
+| `ResourceCompiler` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/overlay/ResourceCompiler.kt` | 先在模块内联合处理本轮变更布局的 ViewBinding/DataBinding，再按资源 root 分批编译 `.flat` |
 | `ArscCompiler` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/overlay/ArscCompiler.kt` | 使用 aapt2 `inclink` 载入当前 APK 资源表并 link 出 `resources.arsc`、compiled res；新增资源时还可产出 `R.java` |
 | `AssetOverlayCompiler` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/overlay/AssetOverlayCompiler.kt` | 处理普通 `Asset`、APK 根目录 `ClasspathResource` 和 native lib 等非 res overlay |
 | `ComposeResourceCompiler` | `main/src/main/java/com/sickworm/intellij/jugg/compiler/compose/ComposeResourceCompiler.kt` | 按 Gradle 元数据选择 legacy XML 或现代 CVR 资源模型，组织完整资源上下文，并编译 generated Kotlin |
@@ -140,6 +140,8 @@ Compose generated source 路径由 `ModuleBuildPathInfo.composeResourceGenerated
 - `ResourceOverlayCompiler.filterResources()` 会删除根 `Manifest.java`，并在 manifest 无真实变更时删除根 `AndroidManifest.xml`，避免触发 APK repackage。
 - aapt2 可能为一个资源生成多个配置目录产物；如果额外产物对应的 override XML 已存在，过滤逻辑会移除该额外产物，避免覆盖用户显式资源。
 - `ResourceCompiler` 对文件和目录输入统一按 resource root 分组：文件使用 `CompileFile.baseDir`，目录使用自身路径；每个 root 使用规范化绝对路径 MD5 建子输出目录。这样只编译本轮实际输入，同时避免同一模块多个 `res.srcDirs` 中 `values/strings.xml` 等同名文件生成同一个 flat 并相互覆盖。
+- ViewBinding/DataBinding 的生成范围是本次模块编译的全部变更布局，不随 aapt2 的 root 分组拆批；否则后批的模块级 reset 会清除前批的 layout-info，造成新 XML 与旧 Binding 混用。Binding 生成失败时直接终止该模块资源编译，成功后将 stripped XML 替换回各批次，并只向源码阶段返回一份生成源或 trigger。
+- 联合生成前按既有 root 批次顺序排列输入，同一相对路径的布局采用最后一份，保持 Binding 与资源覆盖顺序一致；不同 `layout-*` 配置仍是独立输入。
 - 全量 Gradle 构建期间新观察到的 asset/resource 变更会按 Jugg 接收事件的时间保留到下一轮增量编译，不依赖文件自身 `lastModified`；复制工具可能保留旧时间戳，而对应 Gradle merge task 已在文件出现前完成。
 - DataBinding mapper 生成不在资源阶段完成；资源阶段只处理 base class / split XML，mapper 交给 `SourceCompiler` 在源码编译前处理。
 - 外部 AAR 的 `classes.jar` 不包含自身的 R class，它由宿主资源构建链路提供。外部 AAR 资源变化时，`RDexForSubmoduleCompiler` 按 `DependencyDiffResultHelper` 写入资源变更的 `r_package_name`，从宿主本轮主 R `*.dex` 派生该 namespace 下的 `R*.dex`；同一 namespace 只生成一组，application 主 R package 不重复生成。namespace 完全无法解析时抛出含 dependency name 的编译异常并提示执行完整 Gradle 构建，禁止猜测或静默成功。

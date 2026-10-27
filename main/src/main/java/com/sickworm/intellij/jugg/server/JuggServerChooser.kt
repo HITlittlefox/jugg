@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.intellij.openapi.diagnostic.Logger
 import com.sickworm.intellij.jugg.ide.bean.JuggSettings
+import com.sickworm.intellij.jugg.diagnostics.IssueReportDestination
 import com.sickworm.intellij.jugg.logger.getInstance
 import com.sickworm.intellij.jugg.platform.PlatformApi
 import com.sickworm.intellij.jugg.server.protocols.ServerRule
@@ -17,12 +18,14 @@ class JuggServerChooser(logger: Logger) {
 
     private val logger: Logger = logger.getInstance("JuggServerChooser")
     private var serverRules: List<ServerRule>? = null
+    @Volatile
+    private var selectedServerUrl: String? = null
 
     fun hasAvailableServer(): Boolean {
         if (isSetCustomServer && !JuggSettings.serverUrl.isNullOrBlank()) {
             return true
         }
-        return !(serverRules ?: getEmbeddedServers()).isNullOrEmpty()
+        return (serverRules ?: loadDefaultServers()).isNotEmpty()
     }
 
     private val forbidUrls = mutableSetOf<String>()
@@ -37,17 +40,34 @@ class JuggServerChooser(logger: Logger) {
             }
         }
 
+    val issueReportDestination: IssueReportDestination
+        get() {
+            val url = JuggSettings.serverUrl
+            val custom = isSetCustomServer
+            return if (url.isNullOrBlank() || !custom && url != selectedServerUrl) {
+                IssueReportDestination.Public
+            } else {
+                IssueReportDestination.backend(url)
+            }
+        }
+
+    val availableServerUrl: String?
+        get() = JuggSettings.serverUrl?.takeIf { url ->
+            url.isNotBlank() && (isSetCustomServer || url == selectedServerUrl)
+        }
+
     /**
      * Update server rules and select server on project opened.
      */
     fun updateServer(serverRules: List<ServerRule>?) {
-        this.serverRules = serverRules ?: getEmbeddedServers()
+        this.serverRules = serverRules ?: loadDefaultServers()
 
         if (isSetCustomServer) {
             logger.debug("User set custom server, skip update server.")
             return
         }
 
+        selectedServerUrl = null
         val oldServerUrl = JuggSettings.serverUrl
         val newServerUrl = selectServer(this.serverRules)?.url
         if (newServerUrl.isNullOrBlank()) {
@@ -60,6 +80,7 @@ class JuggServerChooser(logger: Logger) {
             logger.debug("Update server from $oldServerUrl to $newServerUrl")
             JuggSettings.serverUrl = newServerUrl
         }
+        selectedServerUrl = newServerUrl
         JuggSettings.serverExpireTimeMill = System.currentTimeMillis() + SERVER_EXPIRE_AFTER_TIME
     }
 
@@ -119,6 +140,7 @@ class JuggServerChooser(logger: Logger) {
         }
 
         forbidUrls.add(forbidUrl)
+        selectedServerUrl = nextServerUrl
         logger.debug("Update server with forbid url: $forbidUrl")
         logger.debug("Update server from $forbidUrl to $nextServerUrl")
         JuggSettings.serverUrl = nextServerUrl
@@ -197,7 +219,10 @@ class JuggServerChooser(logger: Logger) {
                 title = "Trust Custom Server?",
                 content = "<html>Jugg will connect to:<br><b>$displayUrl</b><br><br>" +
                         "This server can check for Jugg updates, download and install Jugg update JARs, " +
-                        "and download and load custom compiler JARs. Continue only if you control or trust it.</html>",
+                        "and download and load custom compiler JARs. " +
+                        "Manual and automatic issue reports will send unredacted logs to this server, " +
+                        "including project paths, usernames, and possible secrets. " +
+                        "HTTP connections are not encrypted. Continue only if you control or trust it.</html>",
                 okButtonText = "Trust Server",
                 cancelButtonText = "Cancel",
             )
@@ -208,6 +233,35 @@ class JuggServerChooser(logger: Logger) {
             logger.debug("User input server url, set to custom.")
             JuggSettings.serverUrl = newServerUrl
             isSetCustomServer = true
+        }
+    }
+
+    /** Remembers bundled defaults across public upgrades without changing explicit custom servers. */
+    private fun loadDefaultServers(): List<ServerRule> {
+        val embeddedServers = getEmbeddedServers()
+        if (embeddedServers.isNotEmpty()) {
+            logger.debug("Load default server JSON from bundled config/servers.json (${embeddedServers.size} rules).")
+            try {
+                JuggSettings.inheritedServerRulesJson = Gson().toJson(embeddedServers)
+            } catch (e: Exception) {
+                logger.debug("Persist bundled server rules failed, continue with bundled defaults.", e)
+            }
+            return embeddedServers
+        }
+        return try {
+            val json = JuggSettings.inheritedServerRulesJson
+            if (json.isBlank()) {
+                logger.debug("No bundled or inherited default server JSON available.")
+                return emptyList()
+            }
+            logger.debug("Load default server JSON from inherited IDE settings.")
+            val servers: List<ServerRule> = Gson().fromJson(json, object : TypeToken<List<ServerRule>>() {}.type)
+                ?: return emptyList()
+            require(servers.all { !it.url.isNullOrBlank() }) { "Invalid inherited server rule" }
+            servers
+        } catch (e: Exception) {
+            logger.debug("Read inherited server rules failed, ignore inherited defaults.", e)
+            emptyList()
         }
     }
 

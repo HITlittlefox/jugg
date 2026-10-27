@@ -33,12 +33,40 @@ import org.mockito.kotlin.any
 import org.mockito.kotlin.whenever
 import org.mockito.MockedConstruction
 import java.io.File
+import java.lang.reflect.InvocationTargetException
+import java.nio.channels.InterruptedByTimeoutException
 
 /**
  * L2 deploy-flow via [com.sickworm.intellij.jugg.deploy.run.deployflow.VirtualDeployDevice].
  * Spec: docs/task/2026-05/jugg_deploy_flow_virtual_device.md, jugg_deployer_helper_deploy_flow_test_plan.md §5.1
  */
 class JuggDeployerHelperDeployFlowTest {
+
+    @Test
+    fun `wrapped installer socket timeout retries then recovers with one reinstall`() {
+        val fixture = DeployFlowMockBackend.buildFixture(DeployFlowCaseId.DF_L2_006)
+        fixture.compatBoundary.optimisticSwapFailure = InvocationTargetException(InterruptedByTimeoutException())
+
+        val result = fixture.helper.deploy(fixture.deployOptions)
+
+        assertTrue("deploy failed: ${result.failedReason}", result.isSuccess)
+        assertEquals(3, fixture.compatBoundary.optimisticSwapInvokeCount)
+        assertEquals(1, fixture.virtualDevice.installInvokeCount)
+        assertTrue(fixture.virtualDevice.hasDirectOverlayApply())
+        Mockito.verify(fixture.deployFileManager).resetAfterReinstall(Mockito.anyBoolean())
+    }
+
+    @Test
+    fun `unrelated reflection failure does not enter timeout recovery`() {
+        val fixture = DeployFlowMockBackend.buildFixture(DeployFlowCaseId.DF_L2_006)
+        fixture.compatBoundary.optimisticSwapFailure = InvocationTargetException(NoSuchMethodException("overlayInstall"))
+
+        val result = fixture.helper.deploy(fixture.deployOptions)
+
+        assertFalse(result.isSuccess)
+        assertEquals(1, fixture.compatBoundary.optimisticSwapInvokeCount)
+        assertEquals(0, fixture.virtualDevice.installInvokeCount)
+    }
 
     @Test
     fun `recover reinstall executes configured script and stops on script failure`() {
@@ -56,7 +84,7 @@ class JuggDeployerHelperDeployFlowTest {
             assertTrue(result.failedReason.orEmpty().contains("exit code 7"))
             assertEquals(0, fixture.virtualDevice.installInvokeCount)
             assertFalse(fixture.virtualDevice.hasDirectOverlayApply())
-            Mockito.verify(fixture.deployFileManager, Mockito.never()).resetAfterReinstall()
+            Mockito.verify(fixture.deployFileManager, Mockito.never()).resetAfterReinstall(Mockito.anyBoolean())
         }
     }
 
@@ -83,13 +111,25 @@ class JuggDeployerHelperDeployFlowTest {
             fixture.virtualDevice.hadRecoverMismatchOverlayCheckBeforeInstallAndDirectWrite(mismatchedDeviceOverlayId),
         )
         assertTrue(fixture.virtualDevice.installInvokeCount >= 1)
-        Mockito.verify(fixture.deployFileManager).resetAfterReinstall()
+        Mockito.verify(fixture.deployFileManager).resetAfterReinstall(Mockito.anyBoolean())
         assertTrue(fixture.virtualDevice.hasDirectOverlayApply())
         val deviceOverlayId = fixture.virtualDevice.readOverlayId().orEmpty()
         assertNotEquals("", deviceOverlayId)
         assertNotEquals(mismatchedDeviceOverlayId, deviceOverlayId)
         assertEquals(0, fixture.compatBoundary.optimisticSwapInvokeCount)
         Mockito.verify(fixture.deployTargetManager, Mockito.times(1)).restartApp(fixture.device)
+    }
+
+    @Test
+    fun `recover reinstall replays native history when SO hot update is supported`() {
+        withNativeSandboxDeploy(enabled = true) {
+            val fixture = DeployFlowMockBackend.buildFixture(DeployFlowCaseId.DF_L2_002)
+
+            val result = fixture.helper.deploy(fixture.deployOptions)
+
+            assertTrue("deploy failed: ${result.failedReason}", result.isSuccess)
+            Mockito.verify(fixture.deployFileManager).resetAfterReinstall(true)
+        }
     }
 
     @Test
@@ -197,7 +237,7 @@ class JuggDeployerHelperDeployFlowTest {
             fixture.virtualDevice.hadRecoverMismatchOverlayCheckBeforeInstallAndDirectWrite(mismatchedDeviceOverlayId),
         )
         assertTrue(fixture.virtualDevice.installInvokeCount >= 1)
-        Mockito.verify(fixture.deployFileManager).resetAfterReinstall()
+        Mockito.verify(fixture.deployFileManager).resetAfterReinstall(Mockito.anyBoolean())
         assertTrue(fixture.virtualDevice.hasAsStartupAgentPush())
         assertTrue(fixture.virtualDevice.listStartupAgents().contains("dced2491-agent.so"))
         assertTrue(fixture.virtualDevice.hasDirectOverlayApply())
@@ -549,6 +589,62 @@ class JuggDeployerHelperDeployFlowTest {
     }
 
     @Test
+    fun `native-only overlay deploy uses ordinary swap and restarts app`() {
+        withNativeSandboxDeploy(enabled = true) {
+            val fixture = DeployFlowMockBackend.buildFixture(DeployFlowCaseId.DF_L2_009)
+            Mockito.`when`(
+                fixture.deployFileManager.getDeployData(Mockito.anyBoolean(), Mockito.anyBoolean()),
+            ).thenReturn(DeployFlowTestSupport.nativeLibOnlyDeployData())
+
+            val result = fixture.helper.deploy(fixture.deployOptions)
+
+            assertTrue("deploy failed: ${result.failedReason}", result.isSuccess)
+            assertEquals(0, fixture.virtualDevice.installInvokeCount)
+            assertEquals(1, fixture.compatBoundary.optimisticSwapInvokeCount)
+            Mockito.verify(fixture.deployTargetManager).restartApp(fixture.device)
+            assertEquals(JuggDeployData.DeployType.HOT_FIX, result.deployType)
+            assertTrue(result.hasDeployChanges)
+        }
+    }
+
+    @Test
+    fun `native-only deploy updates apk when so hot update is disabled`() {
+        withNativeSandboxDeploy(enabled = false) {
+            val fixture = DeployFlowMockBackend.buildFixture(DeployFlowCaseId.DF_L2_009)
+            Mockito.`when`(
+                fixture.deployFileManager.getDeployData(Mockito.anyBoolean(), Mockito.anyBoolean()),
+            ).thenReturn(DeployFlowTestSupport.nativeLibOnlyDeployData())
+
+            val result = fixture.helper.deploy(fixture.deployOptions)
+
+            assertFalse(result.isSuccess)
+            assertTrue(result.isCanFallback)
+            assertTrue(result.failedReason.orEmpty().contains("signing config"))
+            assertEquals(0, fixture.compatBoundary.optimisticSwapInvokeCount)
+            assertEquals(0, fixture.virtualDevice.installInvokeCount)
+        }
+    }
+
+    @Test
+    fun `native-only deploy updates apk when device api is below oreo`() {
+        withNativeSandboxDeploy(enabled = true) {
+            val fixture = DeployFlowMockBackend.buildFixture(DeployFlowCaseId.DF_L2_009)
+            fixture.virtualDevice.apiLevel = 25
+            Mockito.`when`(
+                fixture.deployFileManager.getDeployData(Mockito.anyBoolean(), Mockito.anyBoolean()),
+            ).thenReturn(DeployFlowTestSupport.nativeLibOnlyDeployData())
+
+            val result = fixture.helper.deploy(fixture.deployOptions)
+
+            assertFalse(result.isSuccess)
+            assertTrue(result.isCanFallback)
+            assertTrue(result.failedReason.orEmpty().contains("signing config"))
+            assertEquals(0, fixture.compatBoundary.optimisticSwapInvokeCount)
+            assertEquals(0, fixture.virtualDevice.installInvokeCount)
+        }
+    }
+
+    @Test
     fun `always restart flag does not restart app after empty deploy when app is foreground`() {
         val fixture = DeployFlowMockBackend.buildFixture(DeployFlowCaseId.DF_L2_009)
         val compileUiHandler = object : CompileUiHandler by CompileUiHandler.DEFAULT {
@@ -781,6 +877,16 @@ class JuggDeployerHelperDeployFlowTest {
             block()
         } finally {
             JuggSettings.sliceDeployRecordJson = oldRecordJson
+        }
+    }
+
+    private fun withNativeSandboxDeploy(enabled: Boolean, block: () -> Unit) {
+        val previous = JuggSettings.isEnableNativeSandboxDeploy
+        JuggSettings.isEnableNativeSandboxDeploy = enabled
+        try {
+            block()
+        } finally {
+            JuggSettings.isEnableNativeSandboxDeploy = previous
         }
     }
 

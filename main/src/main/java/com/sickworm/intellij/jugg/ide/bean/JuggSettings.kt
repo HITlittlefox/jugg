@@ -43,6 +43,9 @@ object JuggSettings {
 
     var isEmbeddedToApk: Boolean by propertiesComponent.delegate(defaultValue = false)
 
+    /** Whether to append --no-daemon when running Gradle fallback compile */
+    var isGradleCompileNoDaemon: Boolean by propertiesComponent.delegate(defaultValue = true)
+
     // Run options end
 
     /** whether check checksum to make sure file is really change when file changes */
@@ -76,6 +79,12 @@ object JuggSettings {
      * Enables direct overlay deploy shortcuts that do not require the app process to be online.
      */
     var isEnableDirectOverlayDeploy: Boolean by propertiesComponent.delegate(defaultValue = true)
+
+    /**
+     * Pushes changed .so files into the app private directory and restarts,
+     * skipping APK re-sign and reinstall. Disabled by default.
+     */
+    var isEnableNativeSandboxDeploy: Boolean by propertiesComponent.delegate(defaultValue = false)
 
     var isUseProjectKotlinCompiler: Boolean by propertiesComponent.delegate(keyName = "isUseProjectKotlinCompiler_v3", defaultValue = true)
 
@@ -158,6 +167,7 @@ object JuggSettings {
 
     var serverUrl: String? by propertiesComponent.delegate(defaultValue = null)
     var serverExpireTimeMill: Long by propertiesComponent.delegate(defaultValue = 0L)
+    internal var inheritedServerRulesJson: String by propertiesComponent.delegate(defaultValue = "")
 
     /** Returns recent commands for one remote SSH target and project directory. */
     fun getRemoteCommandHistory(targetKey: String): List<String> {

@@ -1,6 +1,6 @@
 # 编译系统：DataBinding / ViewBinding
 
-> 最后核对：2026-10-11
+> 最后核对：2026-10-21
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -60,9 +60,11 @@
 
 ```text
 ResourceCompiler
-  -> DataBindingGenBaseClassesCompiler
+  -> 展开本轮目录输入，汇总同一模块各资源 root 的变更布局
+  -> DataBindingGenBaseClassesCompiler（每次模块资源编译只调用一次）
      -> DataBindingArgsManager 解析 Gradle/Jugg DataBinding 目录
      -> 产出 tempDataBindingLayoutXmlDir、base classes 或 DataBinding trigger、stripped XML
+  -> 各资源 root 分别替换 stripped XML，再独立编译 .flat
      -> JuggCompiler 把这些产物转给 SourceCompiler 或 overlays
 ```
 
@@ -100,6 +102,8 @@ SourceCompiler.prepareSourceCompile()
 ## 5. 增量关键点
 
 - DataBinding 和 ViewBinding 都从资源阶段入口开始，但只有 DataBinding 会进入 mapper/BR 阶段。
+- `ResourceCompiler` 在模块内联合处理本轮变更布局，不能在每个资源 root 批次分别调用 base class 编译器：`DataBindingArgsManager.reset()` 会删除模块工作区，逐 root 调用会让后批清除前批的 layout-info 和生成源。生成源或 trigger 只汇总一次，aapt2 的 `.flat` 输出仍按 root 隔离；这不等于扫描模块内全部未变更布局。
+- 联合输入沿用资源 root 批次的覆盖顺序，同一相对路径（包含 `layout-*` 限定目录）的布局只交给生成器最后一份；官方生成器保留首个同名 layout-info，直接传入重复布局会使 Binding 类型与最终覆盖资源不一致。
 - `DataBindingArgsManager.isUseDataBinding(module)` 保持模块级开关/Gradle kapt 输出目录探测；传入非空 `xmlFile` 时，还要求至少一个 XML 含 `<layout`。模块开启 DataBinding 不再绕过本轮布局判断，普通 layout 不生成 DataBinding trigger；本轮若另有 adapter declaration，源码阶段仍可按既有条件运行 processor。
 - 资源阶段没有生成 DataBinding trigger 时，直接输出的 ViewBinding Java 必须同时保存到 `incrementalBaseClassOutDir`，包括模块同时开启 DataBinding/ViewBinding 的情况。Kotlin 先于 Java 编译，依赖 `getGeneratedSourcePaths()` 读取这份最新生成源；仅返回 Java 编译输入会让 Kotlin 继续看到 Gradle baseline 中的旧 Binding。生成 trigger 的路径仍由 Mapper 阶段保存生成源。
 - BR 合并使用 `LinkedHashMap` 保持声明顺序稳定；新增字段追加到末尾，避免 BR id 抖动。

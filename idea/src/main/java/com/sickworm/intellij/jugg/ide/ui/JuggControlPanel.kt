@@ -363,12 +363,14 @@ class JuggControlPanel(
                 settingToggle("Always restart app after deployment", "Disables hot reload to ensure global state is reinitialized.", JuggControlPanelController.Setting.ALWAYS_RESTART)),
             settingGroup("Deployment", "deployment",
                 settingToggle("Quick deploy", "Skip app startup when direct overlay is available.", JuggControlPanelController.Setting.QUICK_DEPLOY),
+                settingToggle(".so(native library) hot update", "Fast hot update .so libraries instead of updating APK.", JuggControlPanelController.Setting.SO_HOT_UPDATE),
                 settingToggle("Auto fallback after deploy failure", "Recover with a full Gradle build.", JuggControlPanelController.Setting.AUTO_FALLBACK),
                 settingToggle("Embed changes into APK", "Supports Android RemoteViews with a slower deploy.", JuggControlPanelController.Setting.EMBED_APK),
                 forceCompatDevicesPanel),
             settingGroup("Compiler", "compiler",
                 settingToggle("Use project Kotlin compiler", "Matches the compiler configured by the project.", JuggControlPanelController.Setting.PROJECT_KOTLIN),
-                settingToggle("Backup classpath", "May improve recovery at the cost of extra storage.", JuggControlPanelController.Setting.BACKUP_CLASSPATH)),
+                settingToggle("Backup classpath", "May improve recovery at the cost of extra storage.", JuggControlPanelController.Setting.BACKUP_CLASSPATH),
+                settingToggle("Gradle fallback compile no daemon", "Adds --no-daemon to Gradle fallback compile commands.", JuggControlPanelController.Setting.GRADLE_COMPILE_NO_DAEMON)),
             settingGroup("Integrations", "integrations",
                 settingAction("Install CLI and agent skills", "Install the Jugg CLI, agent skills, hooks, and required permissions.", "Install…", controller::installSkills),
                 settingAction("Check Jugg updates", "Check whether a newer Jugg plugin is available.", "Check now", controller::checkUpdates),
@@ -409,7 +411,14 @@ class JuggControlPanel(
     ): JComponent {
         val toggle = JBCheckBox(label).apply {
             addActionListener {
-                if (!isRenderingSettings) controller.updateSetting(setting, isSelected)
+                if (!isRenderingSettings) {
+                    val enabled = isSelected
+                    if (setting == JuggControlPanelController.Setting.SO_HOT_UPDATE && enabled) {
+                        isSelected = latestSnapshot.settings.nativeSandboxDeploy
+                    }
+                    controller.updateSetting(setting, enabled)
+                    renderSettings(latestSnapshot.settings)
+                }
             }
         }
         settingToggles[setting] = toggle
@@ -727,10 +736,12 @@ class JuggControlPanel(
             JuggControlPanelController.Setting.CONFIRM_FALLBACK_WHEN_TOO_MANY_CHANGES to settings.confirmFallbackWhenTooManyChanges,
             JuggControlPanelController.Setting.ALWAYS_RESTART to settings.alwaysRestartAppAfterDeployment,
             JuggControlPanelController.Setting.QUICK_DEPLOY to settings.quickDeploy,
+            JuggControlPanelController.Setting.SO_HOT_UPDATE to settings.nativeSandboxDeploy,
             JuggControlPanelController.Setting.AUTO_FALLBACK to settings.autoFallbackAfterDeployFailure,
             JuggControlPanelController.Setting.EMBED_APK to settings.embedChangesIntoApk,
             JuggControlPanelController.Setting.PROJECT_KOTLIN to settings.useProjectKotlinCompiler,
             JuggControlPanelController.Setting.BACKUP_CLASSPATH to settings.backupClasspath,
+            JuggControlPanelController.Setting.GRADLE_COMPILE_NO_DAEMON to settings.gradleCompileNoDaemon,
         )
         isRenderingSettings = true
         values.forEach { (setting, enabled) -> settingToggles[setting]?.isSelected = enabled }

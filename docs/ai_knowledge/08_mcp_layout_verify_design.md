@@ -1,6 +1,6 @@
 # MCP UI 布局验证设计
 
-> 最后核对：2026-10-15
+> 最后核对：2026-10-16
 > 一致性规则：文档与代码冲突时，以代码为准。
 
 ---
@@ -77,7 +77,11 @@ view-inspect
   -> 返回 expression/value/type/density，并 Best-effort 返回 sourceFile/lineNumber
 ```
 
-模式选择：未知页面查找交互候选使用 interaction；几何、结构、装饰节点或隐藏状态验证使用 ui。两模式保留输出节点虚拟 ID 和非默认属性；沿用稀疏默认值省略。裁剪不修改 truncated，摘要数量来自实际输出树。
+模式选择：未知页面查找交互候选使用 interaction；几何、结构、装饰节点或隐藏状态验证使用 ui。interaction 先删除 invisible/gone 节点及整个子树（不提升其孩子，includeGone=true 也不保留），省略 padding/textColor；其余保留字段与 ui 含义一致。两模式公开虚拟 ID 简写为 `_vid_<hash>`，selector 接受新格式和旧 `_vir_id_` 格式，边界转换保持 App 运行时协议不变。沿用稀疏默认值省略。裁剪不修改 truncated，摘要数量来自实际输出树。
+
+interaction 在普通窗口中保留首个完全越界节点的交互模式字段，将其后代替换为仅含 `jugg_details` 的伪子节点（`View is off-screen; descendants omitted in interaction mode.`）；越界叶节点直接保留。伪节点不是控件，不参与节点或 clickable 统计。部分可见、零面积、后代与窗口相交、后代几何未知或带诊断时不折叠该分支。缺少有效窗口 bounds 或请求 rootLayout 子树时，保留原有语义裁剪，不猜测窗口视口。需要后代细节时使用 `--mode ui --root-layout <id>`；顺序、bounds 和 className 可作为滑动探索线索，滑动后需重新采集确认。
+
+离线人工 review 可直接用浏览器打开 [`tools/layout-dump-viewer.html`](../../tools/layout-dump-viewer.html)，导入 ui / interaction artifact，通过二维线框、节点树、属性与重叠候选检查导出内容。工具按文件声明的单位绘制，不重复换算 density；`jugg_details` 仅作为所属节点的后代省略提示。线框与候选顺序不能证明真实遮挡、祖先裁剪或 Z 轴顺序，子树根也不能确定所属窗口视口；字体、图片与实际可见效果仍需真机或截图核对。操作见 [`tools/README.md`](../../tools/README.md#layout-dump-viewerhtml)。
 
 间距与对齐由 Agent 根据 ui dump 或 `view-locate` 返回的 dp bounds 计算：
 
@@ -92,7 +96,7 @@ centerY           = (top + bottom) / 2
 
 ### Compose 加载与不完整采集
 
-`BootstrapApplication` 通过 Context 的 App ClassLoader 反射启动 ViewHierarchy；整个采集链和私有 Dragonfly 仅在 APK runtime 中定义。首次发现 Compose 宿主时先启用 adapter，再通过主线程帧回调后的消息采集；请求后台等待至多 5 秒，过期请求及帧回调取消。无 Compose 的窗口直接使用现有提取路径，后续请求不重复初始化。
+`BootstrapApplication` 通过 Context 的 App ClassLoader 反射启动 ViewHierarchy；整个采集链和私有 Dragonfly 仅在 APK runtime 中定义。首次发现 Compose 宿主时先启用 adapter，再通过主线程帧回调后的消息采集；请求后台等待至多 10 秒，过期请求及帧回调取消。无 Compose 的窗口直接使用现有提取路径，后续请求不重复初始化。
 
 Dragonfly 私有 Kotlin 不得改写宿主 Compose ABI。源码 JAR 中 `mapTree$default` 的 Function3 参数与回调工厂保留宿主类型，内置运行库定义继续全部私有化。若异常描述符中出现 `internal.dragonfly.runtime.kotlin.jvm.functions.Function3`，属于重定位错误，不能仅凭 `NoSuchMethodError` 判断为宿主 Compose 版本缺少方法；此问题从 Agent `1.0.84` 修正。
 
@@ -131,7 +135,7 @@ tap
 | 数据 | 来源 | 单位 / 语义 |
 |------|------|-------------|
 | `layout-dump` JSON | `LayoutDumpHelper` | interaction 裁剪页面摘要；ui 保留采集树；文件自包含 mode、units、窗口、deviceInfo、truncated 和可选 warnings/rootLayout |
-| 内部 layout JSON | `LayoutDumpHelper.dumpInternal()` | 供布局验证存量 action 消费，始终保留采集树；公开 JSON 应通过工具返回的 data.file 读取 |
+| 内部 layout JSON | `LayoutDumpHelper.dumpInternal()` | 供布局验证存量 action 消费，始终保留采集树；公开 JSON 优先使用 data.layout，否则按需读取 data.file |
 | `view-locate.data.bounds` | `UiFindMcpToolAction` | `[left, top, right, bottom]`，单位 dp |
 | `view-locate.data.matchCount` | App 侧 `find_elements` | selector 总命中数；大于 1 时不返回顶层首个节点坐标 |
 | `view-locate.data.returnedCount/truncated` | App 侧 `find_elements` | 实际返回候选数，以及是否被 `maxResults` 截断 |
